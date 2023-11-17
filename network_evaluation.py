@@ -6,6 +6,7 @@ import tacoma as tc
 from tacoma.analysis import plot_contact_durations
 from tacoma.analysis import plot_degree_distribution
 import random
+import human_mobility_models as hm
 
 
 # helper functions for loading saving networks, normalization and splitting them up into daily chunks
@@ -28,6 +29,7 @@ def collect_SFHH():
 
 
     for grp, x in df.groupby('day'):
+        x.t = x.t - x.t.min()
         x.to_parquet(f'./data_eval_split/SFHH/{grp}.parquet')
 
 
@@ -42,6 +44,7 @@ def collect_InVS():
         df = normalized_nodes_time(df)
         
         for grp, x in df.groupby('day'):
+            x.t = x.t - x.t.min()
             x.to_parquet(f'./data_eval_split/InVS/f{i}_{grp}.parquet')
 
 
@@ -53,6 +56,7 @@ def collect_primaryschool():
     df = normalized_nodes_time(df)
 
     for grp, x in df.groupby('day'):
+            x.t = x.t - x.t.min()
             x.to_parquet(f'./data_eval_split/primaryschool/{grp}.parquet')
 
 
@@ -91,6 +95,7 @@ def collect_highschool():
         df = normalized_nodes_time(df)
 
         for grp, x in df.groupby('day'):
+            x.t = x.t - x.t.min()
             x.to_parquet(f'./data_eval_split/highschool/f{i}_{grp}.parquet')
 
 
@@ -147,7 +152,7 @@ class EvaluationNetwork:
             switch_off_points = np.insert(switch_off_points, [0, len(switch_off_points)], [-1, len(person_contact.tt) - 1])
 
             # Generate trajectories
-            for i, (sonp, sofp) in enumerate(zip(switch_off_points[:-1], switch_off_points[1:])):
+            for _, (sonp, sofp) in enumerate(zip(switch_off_points[:-1], switch_off_points[1:])):
                 p_id.append(person_contact.ij)
                 activity_start_min.append(person_contact.tt[sonp + 1])
                 activity_end_min.append(person_contact.tt[sofp])
@@ -182,9 +187,17 @@ class EvaluationNetwork:
 
 
 if __name__ == '__main__':
-    path = './data_eval_split/gallery/f9_2009-05-09.parquet'
-    EN = EvaluationNetwork('gallery')
+    # path = './data_eval_split/gallery/f57_2009-07-04.parquet'
+    EN = EvaluationNetwork('highschool')
     EN.to_tacoma_tn()
     EN.overview_plots()
+    df = EN.eval_df_to_trajectory(180)
+    Loc = hm.Location(f'{EN.name}_{EN.name_identifier}', 3, 3, 10, 10)
+    ts, te = df.activity_start_min.min(), df.activity_end_min.max()
+    HM = hm.HumanMobilityNetwork(df, Loc, ts, te, 20, 20)
+    HM.make_movement(method='STEPS_with_RWP')
+    HM.animate_movement()
+
+    
 
 

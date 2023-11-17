@@ -25,6 +25,7 @@ def attractor_icdf(k):
 def generate_array(row):
     return np.arange(row['activity_start_min'], row['activity_end_min'] + 1)
 
+
 class Node:
     def __init__(self, node_id, tmax):
         self.id = node_id
@@ -97,7 +98,7 @@ class Location:
 
 
 class HumanMobilityNetwork:
-    def __init__(self, df, Location, t_start, t_end, t_scale=1):
+    def __init__(self, df, Location, t_start, t_end, t_scale=1, n_scale=60):
         '''
         df: a pandas data frame where every row is trajectory concluding in loc_id_end, 
         with the following coloumns:
@@ -110,14 +111,15 @@ class HumanMobilityNetwork:
 
         t_start, t_end: start/end time of the simulation. Unit: minutes
 
-        t_scale: Even though trajectory time staps are of unit minute, the simulation can be scaled up to an arbitrary time unit. 
-        The parameter t_scale gives the time unit of the simulation in units of seconds, i.e. if t_scale=20 a time step in the simulation happens every 20s.
+        t_scale: Time scale of the simulation is 1 second i.e. one time step in the simulation happens every 1 second. The t_scale parameter is relevant if you want to return the dynamic network. 
+        One time step in the dynamic network is aggregated from the simulation. An edge occurs if agents i,j met at least once during t_scale time steps in the simulation.
+        n_scale: The number of seconds one time unit in the df represents
         '''
         self.Location = Location
         self.df = df
         print('start')
         # FOR TESTING!!!
-        self.df = self.df.head(300)
+        # self.df = self.df.head(100)
 
         # map p_id to index like
         util.map_pid(self.df)
@@ -126,22 +128,23 @@ class HumanMobilityNetwork:
 
         # Setting parameters
         self.t_scale = t_scale
+        self.n_scale = n_scale
         self.unique_nodes = self.df.p_id.unique()
-        self.t_start = int(t_start * 60/self.t_scale)
-        self.t_end = ceil(t_end * 60/self.t_scale)
-        self.df.activity_start_min = (self.df.activity_start_min * 60/self.t_scale).round().astype('int')
-        self.df.activity_end_min = (self.df.activity_end_min * 60/self.t_scale).round().astype('int')
+        self.t_start = int(t_start * self.n_scale)
+        self.t_end = ceil(t_end * self.n_scale)
+        self.df.activity_start_min = (self.df.activity_start_min * self.n_scale).round().astype('int')
+        self.df.activity_end_min = (self.df.activity_end_min * self.n_scale).round().astype('int')
 
         # Initialize nodes this will be done on simulation level later
         self.nodes = [Node(node, self.t_end) for node in np.arange(0, self.df.p_id.max() + 1)]
 
         # Model parameters
         self.k = 1.75 # Strenght of the attractor must be greater than 1
-        self.STEPS_pause_time = 5 # shape parameter of Pareto PDF, this value has to be set interms of t_scal, it doesN't scale linear
+        self.STEPS_pause_time = 1.2 # shape parameter of Pareto PDF, this value has to be set interms of t_scal, it doesn't scale linear
         # self.STEPS_pause_time_inv = 1 / self.STEPS_pause_time
-        self.v_STEPS_min, self.v_STEPS_max = .83 * self.t_scale, 3.2 * self.t_scale # interval for uniform distribution to pick travel speed between zones from
-        self.v_RWP_min, self.v_RWP_max = .1 * self.t_scale, 1. * self.t_scale # interval for uniform distribution to pick travel speed between waypoints from
-        self.RWP_tpause_min, self.RWP_tpause_max = round(0 / self.t_scale), round(5 / self.t_scale) # ranges to pick waiting time in waypoint from
+        self.v_STEPS_min, self.v_STEPS_max = .83, 3.2 # interval for uniform distribution to pick travel speed between zones from
+        self.v_RWP_min, self.v_RWP_max = .1, 1. # interval for uniform distribution to pick travel speed between waypoints from
+        self.RWP_tpause_min, self.RWP_tpause_max = 0, 5 # ranges to pick waiting time in waypoint from
         self.tlw_max_wt = 100
 
     def RWP(self, NODE, SPACE, t_start_RWP, t_end_RWP, x, y):
@@ -218,7 +221,7 @@ class HumanMobilityNetwork:
             z = np.random.choice(possible_new_z, 1)[0]
 
             # Prepare RWP
-            tpause = round(60 * random.paretovariate(self.STEPS_pause_time))
+            tpause = random.randint(20, 30)
             if TE - TS - tpause <= 0:
                 tpause = TE - TS
                 
@@ -267,7 +270,7 @@ class HumanMobilityNetwork:
         
         # Initialize
         t = TS
-        tpause = round(60 * random.paretovariate(self.STEPS_pause_time))
+        tpause = round(self.n_scale * random.paretovariate(self.STEPS_pause_time))
 
         if t + tpause > TE:
             # TODO: Find a smarter way to end trajectory in the future
@@ -287,7 +290,7 @@ class HumanMobilityNetwork:
             possible_new_z, = np.where(self.Location.distance_matrix[Z0] <= attractor_icdf(self.k))
             z = np.random.choice(possible_new_z, 1)[0]
             x, y = self.Location.spaces[z].get_random_coords()
-            tpause = round(60 *random.paretovariate(self.STEPS_pause_time))
+            tpause = round(self.n_scale *random.paretovariate(self.STEPS_pause_time))
 
             # Calculate travel trajectory
             distance = ((x - xp)**2 + (y - yp)**2)**.5
@@ -418,6 +421,9 @@ class HumanMobilityNetwork:
 
         segments = np.stack((nodeA, nodeB), axis=1)
         return segments, dist
+    
+    def make_tacoma_network(self):
+        pass
 
     def animate_movement(self):
         fig, ax = plt.subplots(figsize=(9, 9))
@@ -430,7 +436,6 @@ class HumanMobilityNetwork:
         segments, dist = self.make_network(pos[0])
         lc = LineCollection(segments, cmap='Reds_r', norm=norm, linewidth=2)
         lc.set_array(dist)
-        scat = ax.scatter(X[:, 0], Y[:, 0], c='black')
         norm = Normalize(vmin=0, vmax=5)
         ax.add_collection(lc)
         scat = ax.scatter(pos[:, 0], pos[:, 1], c='grey')
@@ -446,15 +451,15 @@ class HumanMobilityNetwork:
             y = Y[:, frame]
             data = np.stack([x, y]).T
             scat.set_offsets(data)
-            ax.set_title(f'{self.METHOD}, TU: {int(frame)}, 10xTU/s')
+            ax.set_title(f'{self.METHOD}, TU: {int(frame)}, 5xTU/s')
 
             # update edges
             segments, dist = self.make_network(pos[frame])
             lc.set_segments(segments)
             lc.set_array(dist)
 
-        anim = FuncAnimation(fig, animate, range(round(600*60/self.t_scale), round(600*60/self.t_scale + 3*60/self.t_scale)), interval=100)
-        anim.save(f'./plots/human_mobility/{self.METHOD}_animation_test.gif')
+        anim = FuncAnimation(fig, animate, range(round((self.t_end - self.t_start)/2), round((self.t_end - self.t_start)/2 + 300)), interval=200)
+        anim.save(f'./plots/human_mobility/{self.Location.loc_id}_{self.METHOD}_animation_test.gif')
 
 
 def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
@@ -471,7 +476,7 @@ def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
     xs = xs[t0: tend]
     print(np.where(np.isnan(xs)))
     
-    plt.savefig(f'./plots/human_mobility/{method}_interpolation_test_singular.png')
+    plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test_singular.png')
 
 
 def interpolation_test(HumanMobilityModel, t0, tend, method):
@@ -486,7 +491,7 @@ def interpolation_test(HumanMobilityModel, t0, tend, method):
         xs, ys = HumanMobilityModel.nodes[an].x, HumanMobilityModel.nodes[an].y
         ax.scatter(xs[t0: tend], ys[t0: tend], s=1, alpha=.3)
     
-    plt.savefig(f'./plots/human_mobility/{method}_interpolation_test.png')
+    plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test.png')
 
 
 
@@ -504,8 +509,13 @@ if __name__=='__main__':
     loc1015 = df_base[df_base.loc_id_end == locations[1015]]
     loc2101 = df_base[df_base.loc_id_end == locations[2101]]
 
+    Loc = Location(1015, 10, 10, 10, 10)
+    HN = HumanMobilityNetwork(loc1015, Loc, t_start, t_end, 1)
+    HN.make_movement(method='STEPS_with_RWP')
+    HN.animate_movement()
 
-    t_scale = 1
+
+    '''t_scale = 1
     for method in ['TLW', 'RWP', 'STEPS', 'STEPS_with_RWP']:
         print(method)
         Loc = Location(1015, 10, 10, 10, 10)
@@ -514,7 +524,7 @@ if __name__=='__main__':
 
         interpolation_test_singular(HN, round(500*60/t_scale), round(600*60/t_scale), method) 
         interpolation_test(HN, round(500*60/t_scale), round(800*60/t_scale), method) 
-        HN.animate_movement()  
+        HN.animate_movement()  '''
 
 
 
