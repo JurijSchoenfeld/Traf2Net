@@ -182,7 +182,7 @@ class EvaluationNetwork:
         labels = [['contact', 'inter contact'], ['model contact', 'model inter contact']]
         colors = ['#1f77b4', '#ff7f0e']
         labels2 = ['data', 'model']
-        ICTs, CDs = [], []
+        ICTs, CDs, degrees = [], [], []
 
         fig, axs = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle(f'{self.name} {self.name_identifier}')
@@ -194,7 +194,10 @@ class EvaluationNetwork:
             plot_contact_durations(res, (ax1, ax3), fit_power_law=True, bins=100, xlabel='duration [min]', color=colors[i], label=labels[i])
 
             ax2.set_title('time average degreee distribution')
-            plot_degree_distribution(tc.api.degree_distribution(tn), ax2, label=labels2[i])
+            degree = np.array(tc.api.degree_distribution(tn))
+            degree = degree[degree > 0]
+            degrees.append(degree)
+            plot_degree_distribution(degree, ax2, label=labels2[i])
 
             _, _, m = tc.edge_counts(tn)
             ax4.set_title('edge_counts')
@@ -202,11 +205,14 @@ class EvaluationNetwork:
 
         ks_test_ICTs = ks_2samp(ICTs[0], ICTs[1], alternative='tow-sided')
         ks_test_CDs = ks_2samp(CDs[0], CDs[1], alternative='two-sided')
+        ks_test_degrees = ks_2samp(degrees[0], degrees[1])
         cd_title = 'contact duration distribution, KS: {statistic: .2f} p={pval: .2g}'
         ict_title = 'inter contact time distribution, KS: {statistic: .2f} p={pval: .2g}'
+        degree_title = r'$\bar d(t)$, ' + 'KS: {statistic: .2f} p={pval: .2g}'
 
         ax1.set_title(cd_title.format(statistic=ks_test_CDs.statistic, pval=ks_test_CDs.pvalue))
         ax3.set_title(ict_title.format(statistic=ks_test_ICTs.statistic, pval=ks_test_ICTs.pvalue))
+        ax2.set_title(degree_title.format(statistic=ks_test_degrees.statistic, pval=ks_test_degrees.pvalue))
 
         for ax in axs.flatten():
             ax.legend()
