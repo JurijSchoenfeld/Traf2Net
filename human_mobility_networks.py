@@ -7,11 +7,12 @@ from matplotlib.markers import MarkerStyle
 from matplotlib.colors import Normalize
 from matplotlib.collections import LineCollection
 from scipy.spatial import KDTree
-from scipy.sparse import triu
+from scipy.sparse import triu, coo_array
 from scipy.spatial.distance import pdist, squareform
 import random
 from math import ceil, floor
 from mobility import truncated_levy_walk, random_waypoint
+import tacoma as tc
 
 
 def attractor_pdf(x, k):
@@ -136,10 +137,11 @@ class HumanMobilityNetwork:
         self.df.activity_end_min = (self.df.activity_end_min * self.n_scale).round().astype('int')
 
         # Initialize nodes this will be done on simulation level later
+        print(self.t_end)
         self.nodes = [Node(node, self.t_end) for node in np.arange(0, self.df.p_id.max() + 1)]
 
         # Model parameters
-        self.k = 1.75 # Strenght of the attractor must be greater than 1
+        self.k = 1.2 # Strenght of the attractor must be greater than 1
         self.STEPS_pause_time = 1.2 # shape parameter of Pareto PDF, this value has to be set interms of t_scal, it doesn't scale linear
         # self.STEPS_pause_time_inv = 1 / self.STEPS_pause_time
         self.v_STEPS_min, self.v_STEPS_max = .83, 3.2 # interval for uniform distribution to pick travel speed between zones from
@@ -335,7 +337,8 @@ class HumanMobilityNetwork:
         return pos
 
     def get_TLW_positions(self, grp, pos):
-        indices = np.concatenate(grp.to_numpy())
+        indices = np.concatenate(grp.to_numpy()) - 1
+        #print(indices.max())
         self.nodes[grp.name].x[indices] = pos[indices, grp.name, 0]
         self.nodes[grp.name].y[indices] = pos[indices, grp.name, 1]
 
@@ -361,13 +364,13 @@ class HumanMobilityNetwork:
             self.df['default_zone'] = self.df.p_id.map(default_zones_map)
             # print(self.df.activity_end_min.max())
             self.df.apply(self.STEPS_with_RWP, pos=pos, axis=1)
-
         
         if method == 'TLW':
             pos = self.TLW(len(self.unique_nodes))
             print(pos.shape)
 
             result = self.df.apply(generate_array, axis=1)
+            print(result)
             result.groupby(self.df['p_id']).apply(self.get_TLW_positions, pos=pos)
         
         if method == 'RWP':
@@ -422,9 +425,47 @@ class HumanMobilityNetwork:
         segments = np.stack((nodeA, nodeB), axis=1)
         return segments, dist
     
-    def make_tacoma_network(self):
-        pass
+    def make_tacoma_network(self, max_dist, time_resolution):
+        # Get node positions
+        X = np.array([node.x for node in self.nodes])
+        Y = np.array([node.y for node in self.nodes])
+        all_pos = np.array((X, Y)).T
 
+        # For testing
+        # all_pos = all_pos[:1000]
+        
+        # Initiate tacoma dynamic network
+        tn = tc.edge_lists()
+        tn.N = len(self.unique_nodes)
+        Nt = ceil((self.t_end - self.t_start)/time_resolution)
+        tn.t = list(range(Nt))
+        tn.tmax = Nt
+        tn.time_unit = '20s'
+        contacts = []
+        relevant_distances = coo_array((tn.N, tn.N))
+
+        for t, pos in enumerate(all_pos):
+            posTree = KDTree(pos)
+            relevant_distances = relevant_distances + triu(posTree.sparse_distance_matrix(posTree, max_distance=max_dist, p=2), k=1)
+
+            if (t + 1) % time_resolution == 0:
+                #print(relevant_distances.max())
+                Aind, Bind = relevant_distances.nonzero()
+                contacts.append(list(zip(Aind, Bind)))
+                relevant_distances = coo_array((tn.N, tn.N))
+            
+            if t % 10000 == 0:
+                print(t)
+
+        # Check for errors and convert to edge_changes
+        tn.edges = contacts
+        print('edge list errors: ', tc.verify(tn))
+
+        tn = tc.convert(tn)
+        print('edge changes errors: ', tc.verify(tn))
+
+        return tn
+            
     def animate_movement(self):
         fig, ax = plt.subplots(figsize=(9, 9))
         self.Location.plot_location(fig, ax)

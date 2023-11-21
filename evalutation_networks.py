@@ -3,10 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import tacoma as tc
-from tacoma.analysis import plot_contact_durations
+#from tacoma.analysis import plot_contact_durations
+from util import plot_contact_durations
 from tacoma.analysis import plot_degree_distribution
 import random
-import human_mobility_models as hm
+import human_mobility_networks as hm
+from scipy.sparse import csr_array
 
 
 # helper functions for loading saving networks, normalization and splitting them up into daily chunks
@@ -157,46 +159,64 @@ class EvaluationNetwork:
                 activity_start_min.append(person_contact.tt[sonp + 1])
                 activity_end_min.append(person_contact.tt[sofp])
             
-        return pd.DataFrame({'p_id': p_id, 'activity_start_min': activity_start_min, 'activity_end_min': activity_end_min})
+        self.df = pd.DataFrame({'p_id': p_id, 'activity_start_min': activity_start_min, 'activity_end_min': activity_end_min})
+        return self.df
+    
+    def hm_approximation(self, Loc, method, time_resotlution):
+        print(self.df)
+        self.method = method
+        ts, te = self.df.activity_start_min.min(), self.df.activity_end_min.max() 
+        HM = hm.HumanMobilityNetwork(self.df, Loc, ts, te, 20, 20)
+        HM.make_movement(method=method)
+        print('finished simulation \nstart working on network')
+
+        self.tn_approx = HM.make_tacoma_network(1.5, time_resotlution)
             
 
-    def overview_plots(self):
-        result = tc.api.measure_group_sizes_and_durations(self.tn)
-        result.contact_durations
+    def overview_plots(self, approx):
+        if approx:
+            networks = [self.tn, self.tn_approx]
+        else:
+            networks = [self.tn]
+        
+        labels = [['contact', 'inter contact'], ['model contact', 'model inter contact']]
+        colors = ['#1f77b4', '#ff7f0e']
+        labels2 = ['data', 'model']
+
         fig, axs = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle(f'{self.name} {self.name_identifier}')
         (ax1, ax2, ax3, ax4) = axs.flatten()
+        for i, tn in enumerate(networks):
+            ax1.set_title('contact duration distribution')
+            plot_contact_durations(tc.api.measure_group_sizes_and_durations(tn), (ax1, ax3), fit_power_law=True, bins=100, xlabel='duration [min]', color=colors[i], label=labels[i])
 
-        ax1.set_title('contact duration distribution')
-        plot_contact_durations(result, ax1, bins=100, xlabel='duration [min]')
+            ax2.set_title('time average degreee distribution')
+            plot_degree_distribution(tc.api.degree_distribution(tn), ax2, label=labels2[i])
 
-        ax2.set_title('time average degreee distribution')
-        plot_degree_distribution(tc.api.degree_distribution(self.tn), ax2)
+            _, _, m = tc.edge_counts(tn)
+            ax4.set_title('edge_counts')
+            ax4.plot(tn.t, m[:-1], color=colors[i], label=labels2[i], alpha=.5)
 
-        _, _, m = tc.edge_counts(self.tn)
-        ax3.set_title('edge_counts')
-        ax3.plot(self.tn.t, m[:-1])
+            ax3.set_title('inter contact time distribution')
 
-        t, k = tc.api.mean_degree(self.tn)
-        ax4.set_title('average degree')
-        ax4.plot(t, k)
+        for ax in axs.flatten():
+            ax.legend()
 
         plt.tight_layout()
-        plt.savefig(f'./plots/eval_networks/overview_{self.name}_{self.name_identifier}.png')
+        plt.savefig(f'./plots/eval_networks/overview_{self.name}_{self.name_identifier}_approx_{approx}_{self.method}.png')
         plt.close()
 
 
 if __name__ == '__main__':
     # path = './data_eval_split/gallery/f57_2009-07-04.parquet'
-    EN = EvaluationNetwork('highschool')
+    EN = EvaluationNetwork('gallery')
     EN.to_tacoma_tn()
-    EN.overview_plots()
-    df = EN.eval_df_to_trajectory(180)
+    # EN.overview_plots()
+    EN.eval_df_to_trajectory(180)
     Loc = hm.Location(f'{EN.name}_{EN.name_identifier}', 3, 3, 10, 10)
-    ts, te = df.activity_start_min.min(), df.activity_end_min.max()
-    HM = hm.HumanMobilityNetwork(df, Loc, ts, te, 20, 20)
-    HM.make_movement(method='STEPS_with_RWP')
-    HM.animate_movement()
+    EN.hm_approximation(Loc, 'RWP', 20)
+
+    EN.overview_plots(True)
 
     
 
