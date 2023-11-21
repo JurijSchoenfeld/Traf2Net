@@ -9,6 +9,7 @@ from tacoma.analysis import plot_degree_distribution
 import random
 import human_mobility_networks as hm
 from scipy.sparse import csr_array
+from scipy.stats import ks_2samp
 
 
 # helper functions for loading saving networks, normalization and splitting them up into daily chunks
@@ -163,7 +164,6 @@ class EvaluationNetwork:
         return self.df
     
     def hm_approximation(self, Loc, method, time_resotlution):
-        print(self.df)
         self.method = method
         ts, te = self.df.activity_start_min.min(), self.df.activity_end_min.max() 
         HM = hm.HumanMobilityNetwork(self.df, Loc, ts, te, 20, 20)
@@ -182,13 +182,16 @@ class EvaluationNetwork:
         labels = [['contact', 'inter contact'], ['model contact', 'model inter contact']]
         colors = ['#1f77b4', '#ff7f0e']
         labels2 = ['data', 'model']
+        ICTs, CDs = [], []
 
         fig, axs = plt.subplots(2, 2, figsize=(16, 12))
         fig.suptitle(f'{self.name} {self.name_identifier}')
         (ax1, ax2, ax3, ax4) = axs.flatten()
         for i, tn in enumerate(networks):
-            ax1.set_title('contact duration distribution')
-            plot_contact_durations(tc.api.measure_group_sizes_and_durations(tn), (ax1, ax3), fit_power_law=True, bins=100, xlabel='duration [min]', color=colors[i], label=labels[i])
+            res = tc.api.measure_group_sizes_and_durations(tn)
+            ICTs.append(res.group_durations[1])
+            CDs.append(res.contact_durations)
+            plot_contact_durations(res, (ax1, ax3), fit_power_law=True, bins=100, xlabel='duration [min]', color=colors[i], label=labels[i])
 
             ax2.set_title('time average degreee distribution')
             plot_degree_distribution(tc.api.degree_distribution(tn), ax2, label=labels2[i])
@@ -197,7 +200,13 @@ class EvaluationNetwork:
             ax4.set_title('edge_counts')
             ax4.plot(tn.t, m[:-1], color=colors[i], label=labels2[i], alpha=.5)
 
-            ax3.set_title('inter contact time distribution')
+        ks_test_ICTs = ks_2samp(ICTs[0], ICTs[1], alternative='tow-sided')
+        ks_test_CDs = ks_2samp(CDs[0], CDs[1], alternative='two-sided')
+        cd_title = 'contact duration distribution, KS: {statistic: .2f} p={pval: .2g}'
+        ict_title = 'inter contact time distribution, KS: {statistic: .2f} p={pval: .2g}'
+
+        ax1.set_title(cd_title.format(statistic=ks_test_CDs.statistic, pval=ks_test_CDs.pvalue))
+        ax3.set_title(ict_title.format(statistic=ks_test_ICTs.statistic, pval=ks_test_ICTs.pvalue))
 
         for ax in axs.flatten():
             ax.legend()
@@ -215,7 +224,6 @@ if __name__ == '__main__':
     EN.eval_df_to_trajectory(180)
     Loc = hm.Location(f'{EN.name}_{EN.name_identifier}', 3, 3, 10, 10)
     EN.hm_approximation(Loc, 'RWP', 20)
-
     EN.overview_plots(True)
 
     
