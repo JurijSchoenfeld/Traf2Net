@@ -110,7 +110,7 @@ class HumanMobilityNetwork:
         
         Location: An instance of Location class defining important parameters for simulation
 
-        t_start, t_end: start/end time of the simulation. Unit: minutes
+        t_start, t_end: start/end time of the simulation. 
 
         t_scale: Time scale of the simulation is 1 second i.e. one time step in the simulation happens every 1 second. The t_scale parameter is relevant if you want to return the dynamic network. 
         One time step in the dynamic network is aggregated from the simulation. An edge occurs if agents i,j met at least once during t_scale time steps in the simulation.
@@ -131,13 +131,12 @@ class HumanMobilityNetwork:
         self.t_scale = t_scale
         self.n_scale = n_scale
         self.unique_nodes = self.df.p_id.unique()
-        self.t_start = int(t_start * self.n_scale)
-        self.t_end = ceil(t_end * self.n_scale)
-        self.df.activity_start_min = (self.df.activity_start_min * self.n_scale).round().astype('int')
-        self.df.activity_end_min = (self.df.activity_end_min * self.n_scale).round().astype('int')
+        self.t_start = int(t_start * self.n_scale) # convert to seconds
+        self.t_end = ceil(t_end * self.n_scale) # convert to seconds
+        self.df.activity_start_min = (self.df.activity_start_min * self.n_scale).round().astype('int') # convert to seconds
+        self.df.activity_end_min = (self.df.activity_end_min * self.n_scale).round().astype('int') # convert to seconds
 
         # Initialize nodes this will be done on simulation level later
-        print(self.t_end)
         self.nodes = [Node(node, self.t_end) for node in np.arange(0, self.df.p_id.max() + 1)]
 
         # Model parameters
@@ -150,6 +149,7 @@ class HumanMobilityNetwork:
         self.tlw_max_wt = 100
 
     def RWP(self, NODE, SPACE, t_start_RWP, t_end_RWP, x, y):
+        # This implementation of RWP is outdated right now
         t = t_start_RWP
         xp, yp = x, y
 
@@ -202,6 +202,7 @@ class HumanMobilityNetwork:
         return xp, yp
 
     def RWP_main(self, nagents, dim):
+        # Returns RWP positions for n-agents moving in a room with dimensions dim
         rwp = random_waypoint(nagents, dimensions=dim, wt_max=5)
         pos = np.array([next(rwp).copy() for _ in range(self.t_end - self.t_start)])
         return pos
@@ -223,7 +224,7 @@ class HumanMobilityNetwork:
             z = np.random.choice(possible_new_z, 1)[0]
 
             # Prepare RWP
-            tpause = random.randint(20, 30)
+            tpause = random.randint(20, 30)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
             if TE - TS - tpause <= 0:
                 tpause = TE - TS
                 
@@ -255,6 +256,7 @@ class HumanMobilityNetwork:
             NODE.y[t: t + travel_time] = y_interpolated
 
             if t + travel_time + tpause > TE:
+                # TODO: Find a smarter way to end trajectory in the future
                 break
 
             # RWP
@@ -272,7 +274,7 @@ class HumanMobilityNetwork:
         
         # Initialize
         t = TS
-        tpause = round(self.n_scale * random.paretovariate(self.STEPS_pause_time))
+        tpause = random.randint(20, 30)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
 
         if t + tpause > TE:
             # TODO: Find a smarter way to end trajectory in the future
@@ -292,7 +294,7 @@ class HumanMobilityNetwork:
             possible_new_z, = np.where(self.Location.distance_matrix[Z0] <= attractor_icdf(self.k))
             z = np.random.choice(possible_new_z, 1)[0]
             x, y = self.Location.spaces[z].get_random_coords()
-            tpause = round(self.n_scale *random.paretovariate(self.STEPS_pause_time))
+            tpause = random.randint(20, 30)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
 
             # Calculate travel trajectory
             distance = ((x - xp)**2 + (y - yp)**2)**.5
@@ -336,9 +338,9 @@ class HumanMobilityNetwork:
         pos = np.array([next(tlw).copy() for _ in range(self.t_end - self.t_start)])
         return pos
 
-    def get_TLW_positions(self, grp, pos):
+    def get_positions(self, grp, pos):
+        # Helper function to get positions from mobility.py generator
         indices = np.concatenate(grp.to_numpy()) - 1
-        #print(indices.max())
         self.nodes[grp.name].x[indices] = pos[indices, grp.name, 0]
         self.nodes[grp.name].y[indices] = pos[indices, grp.name, 1]
 
@@ -350,38 +352,34 @@ class HumanMobilityNetwork:
             self.Location.get_distance_matrix()
             default_zones_map = dict(zip(self.unique_nodes, np.random.randint(0, self.Location.N_zones, self.unique_nodes.shape[0])))
             self.df['default_zone'] = self.df.p_id.map(default_zones_map)
-            # print(self.df.activity_end_min.max())
             self.df.apply(self.STEPS, axis=1)
         
         if method == 'STEPS_with_RWP':
             # get RWP positions
             dim = (self.Location.space_dim_x, self.Location.space_dim_y)
-            pos = self.RWP_main(len(self.unique_nodes), dim)
-            print('finished RWP')
+            pos = self.RWP_main(len(self.unique_nodes), dim=dim)
+        
             # Assign default zones to all pid
             self.Location.get_distance_matrix()
             default_zones_map = dict(zip(self.unique_nodes, np.random.randint(0, self.Location.N_zones, self.unique_nodes.shape[0])))
             self.df['default_zone'] = self.df.p_id.map(default_zones_map)
-            # print(self.df.activity_end_min.max())
+            # get STEPS positions
             self.df.apply(self.STEPS_with_RWP, pos=pos, axis=1)
         
         if method == 'TLW':
             pos = self.TLW(len(self.unique_nodes))
-            print(pos.shape)
-
             result = self.df.apply(generate_array, axis=1)
-            print(result)
-            result.groupby(self.df['p_id']).apply(self.get_TLW_positions, pos=pos)
+            result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
         
         if method == 'RWP':
             dim = (self.Location.space_dim_x * self.Location.spaces_x, self.Location.space_dim_y * self.Location.spaces_x)
             pos = self.RWP_main(len(self.unique_nodes), dim)
-            print(pos.shape)
 
             result = self.df.apply(generate_array, axis=1)
-            result.groupby(self.df['p_id']).apply(self.get_TLW_positions, pos=pos)
+            result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
     
     def get_spaces(self):
+        # This method is not used right now
         X = np.array([node.x for node in self.nodes])
         Y = np.array([node.y for node in self.nodes])
 
@@ -446,10 +444,11 @@ class HumanMobilityNetwork:
 
         for t, pos in enumerate(all_pos):
             posTree = KDTree(pos)
+            # Add all contacts together
             relevant_distances = relevant_distances + triu(posTree.sparse_distance_matrix(posTree, max_distance=max_dist, p=2), k=1)
 
             if (t + 1) % time_resolution == 0:
-                #print(relevant_distances.max())
+                # Keep only contacts that occured at least once during the time window
                 Aind, Bind = relevant_distances.nonzero()
                 contacts.append(list(zip(Aind, Bind)))
                 relevant_distances = coo_array((tn.N, tn.N))
@@ -502,8 +501,8 @@ class HumanMobilityNetwork:
         anim = FuncAnimation(fig, animate, range(round((self.t_end - self.t_start)/2), round((self.t_end - self.t_start)/2 + 300)), interval=200)
         anim.save(f'./plots/human_mobility/{self.Location.loc_id}_{self.METHOD}_animation_test.gif')
 
-
 def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
+    # This method creates a visualization of a random path an agent takes
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     df = HumanMobilityModel.df
     active_nodes = df[df.activity_start_min <= t0]
@@ -519,8 +518,8 @@ def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
     
     plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test_singular.png')
 
-
 def interpolation_test(HumanMobilityModel, t0, tend, method):
+    # This method creates a visualization of a random path multiple agents take
     fig, axs = plt.subplots(3, 3, figsize=(10, 10))
     df = HumanMobilityModel.df
     active_nodes = df[df.activity_start_min <= t0]
@@ -534,14 +533,12 @@ def interpolation_test(HumanMobilityModel, t0, tend, method):
     
     plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test.png')
 
-
-
 if __name__=='__main__':
     df_base = pd.read_parquet('./VF_data/rns_data_2.parquet')[['p_id', 'activity_start_min', 'loc_id_end', 'activity_name_mct', 'activity_end_min']]
     df_base = df_base.astype({'activity_start_min': 'uint32', 'activity_end_min': 'uint32'})
     t_start, t_end = df_base.activity_start_min.min(), df_base.activity_end_min.max()
 
-    # location groups
+    # location groups sorted by size
     locations = df_base.groupby('loc_id_end').size().sort_values(ascending=False).index.values
 
     # Some example locations
@@ -554,21 +551,4 @@ if __name__=='__main__':
     HN = HumanMobilityNetwork(loc1015, Loc, t_start, t_end, 1)
     HN.make_movement(method='STEPS_with_RWP')
     HN.animate_movement()
-
-
-    '''t_scale = 1
-    for method in ['TLW', 'RWP', 'STEPS', 'STEPS_with_RWP']:
-        print(method)
-        Loc = Location(1015, 10, 10, 10, 10)
-        HN = HumanMobilityNetwork(loc1015, Loc, t_start, t_end, t_scale)
-        HN.make_movement(method=method)
-
-        interpolation_test_singular(HN, round(500*60/t_scale), round(600*60/t_scale), method) 
-        interpolation_test(HN, round(500*60/t_scale), round(800*60/t_scale), method) 
-        HN.animate_movement()  '''
-
-
-
-    
-
     pass
