@@ -98,7 +98,7 @@ class Location:
         self.distance_matrix = squareform(pdist(X))
 
 
-class HumanMobilityNetwork:
+class ContactNetwork:
     def __init__(self, df, Location, t_start, t_end, t_scale=1, n_scale=60):
         '''
         df: a pandas data frame where every row is trajectory concluding in loc_id_end, 
@@ -414,6 +414,7 @@ class HumanMobilityNetwork:
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
     
     def make_network(self, pos):
+        # Make network and retun segments, dist for animation
         posTree = KDTree(pos)
         relevant_distances = triu(posTree.sparse_distance_matrix(posTree, max_distance=5, p=2), k=1)
 
@@ -506,6 +507,10 @@ class HumanMobilityNetwork:
             pass
             
     def animate_movement(self):
+        if self.METHOD in ['baseline', 'random', 'clique']:
+            print(f'The specified method: {self.METHOD} does not support animation')
+            return
+        
         fig, ax = plt.subplots(figsize=(9, 9))
         self.Location.plot_location(fig, ax)
 
@@ -595,12 +600,12 @@ if __name__=='__main__':
     # Build Location
     Loc = Location(1015, 10, 10, 10, 10)
     # Build simulation class
-    HN = HumanMobilityNetwork(loc1015, Loc, t_start, t_end, 1)
+    HN = ContactNetwork(loc1015, Loc, t_start, t_end, n_scale=60)
     # (optional) set paraemters of simulation class
     HN.tlw_max_wt = 100
 
     # simulate
-    HN.make_movement(method='STEPS_with_RWP')
+    HN.make_movement(method='baseline')
 
     # animate a part of the simulation
     HN.animate_movement()
