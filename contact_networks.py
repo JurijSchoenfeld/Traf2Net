@@ -373,6 +373,14 @@ class ContactNetwork:
         
         return df_contacts
 
+    def random(self):
+        # TODO: implement
+        return
+    
+    def clique(self):
+        # TODO: implement
+        return
+
     def get_positions(self, grp, pos):
         # Helper function to get positions from mobility.py generator
         indices = np.concatenate(grp.to_numpy()) - 1
@@ -413,7 +421,7 @@ class ContactNetwork:
             result = self.df.apply(generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
     
-    def make_network(self, pos):
+    def network_animation(self, pos):
         # Make network and retun segments, dist for animation
         posTree = KDTree(pos)
         relevant_distances = triu(posTree.sparse_distance_matrix(posTree, max_distance=5, p=2), k=1)
@@ -518,7 +526,7 @@ class ContactNetwork:
         Y = np.array([node.y for node in self.nodes])
         pos = np.array((X, Y)).T
         norm = Normalize(vmin=0, vmax=5)
-        segments, dist = self.make_network(pos[0])
+        segments, dist = self.network_animation(pos[0])
         lc = LineCollection(segments, cmap='Reds_r', norm=norm, linewidth=2)
         lc.set_array(dist)
         norm = Normalize(vmin=0, vmax=5)
@@ -539,7 +547,7 @@ class ContactNetwork:
             ax.set_title(f'{self.METHOD}, TU: {int(frame)}, 5xTU/s')
 
             # update edges
-            segments, dist = self.make_network(pos[frame])
+            segments, dist = self.network_animation(pos[frame])
             lc.set_segments(segments)
             lc.set_array(dist)
 

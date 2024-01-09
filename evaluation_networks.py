@@ -7,7 +7,7 @@ import tacoma as tc
 from util import plot_contact_durations
 from tacoma.analysis import plot_degree_distribution
 import random
-import human_mobility_networks as hm
+import traf2net.contact_networks as hm
 from scipy.sparse import csr_array
 from scipy.stats import ks_2samp
 
@@ -166,7 +166,7 @@ class EvaluationNetwork:
     def hm_approximation(self, Loc, method, time_resotlution):
         self.method = method
         ts, te = self.df.activity_start_min.min(), self.df.activity_end_min.max() 
-        HM = hm.HumanMobilityNetwork(self.df, Loc, ts, te, 20, 20)
+        HM = hm.ContactNetwork(self.df, Loc, ts, te, 20, 20)
         HM.make_movement(method=method)
         print('finished simulation \nstart working on network')
 
