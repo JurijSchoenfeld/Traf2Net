@@ -412,49 +412,6 @@ class HumanMobilityNetwork:
 
             result = self.df.apply(generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
-
-        elif method == 'baseline':
-            df_contacts = self.baseline()
-
-        elif method == 'random':
-            pass
-
-        elif method == 'clique':
-            pass
-    
-    def get_spaces(self):
-        # This method is not used right now
-        X = np.array([node.x for node in self.nodes])
-        Y = np.array([node.y for node in self.nodes])
-
-        X_bounds = np.array([((i - 1)*self.Location.space_dim_x, i*self.Location.space_dim_x) for i in range(1, self.Location.spaces_x + 1)])
-        Y_bounds = np.array([((i - 1)*self.Location.space_dim_y, i*self.Location.space_dim_y) for i in range(1, self.Location.spaces_y + 1)])
-        # Y_bounds[0, 0] = Y_bounds[0, 0] - 1
-        # print(Y_bounds)
-        # X_bounds[0, 0] = X_bounds[0, 0] - 1
-        # Reshape x and y positions to have a third dimension for intervals
-        X = X[:, :, np.newaxis]
-        Y = Y[:, :, np.newaxis]
-
-        # Use broadcasting to check which intervals each agent position belongs to
-        in_x_space = (X > X_bounds[:, 0]) & (X <= X_bounds[:, 1])
-        in_y_space = (Y > Y_bounds[:, 0]) & (Y <= Y_bounds[:, 1])
-
-        # Find Trues
-        agent, time, space_x = np.where(in_x_space)
-        _, _, space_y = np.where(in_y_space)
-
-        '''for i, (tx, ty, ax, ay, sx, sy) in enumerate(zip(timex, timey, agentx, agenty, space_x, space_y)):
-            if sx == 9:
-                print(i, tx, ty, ax, ay, sx, sy, X[ax, tx], Y[ay, ty])
-            if tx != ty:
-                print(i-1, timex[i-1], timey[i-1], agentx[i-1], agenty[i-1], space_x[i-1], space_y[i-1], X[agentx[i-1], timex[i-1]], Y[agenty[i-1], timey[i-1]])
-                print(i, tx, ty, ax, ay, sx, sy, X[ax, tx], Y[ay, ty])
-                break'''
-
-        space = space_x + self.Location.space_dim_y * space_y
-
-        return time, agent, space
     
     def make_network(self, pos):
         posTree = KDTree(pos)
@@ -467,6 +424,30 @@ class HumanMobilityNetwork:
         segments = np.stack((nodeA, nodeB), axis=1)
         return segments, dist
     
+    def tn_from_contacts(self, contacts):
+        # Initilize tacoma temporal network
+        tn = tc.edge_changes()
+        tn.N = len(self.unique_nodes)
+        tmax, tmin = contacts.end_of_contact.max(), contacts.start_of_contact.min()
+        Nt = tmax - tmin + 1
+        tn.t = list(range(tmin, tmax + 1))
+        tn.tmax = tmax + 1
+        tn.time_unit = '60s'
+
+        # Make edges
+        edges_in, edges_out = [[] for _ in range(Nt)], [[] for _ in range(Nt)]
+        for _, c in contacts.iterrows():
+            edges_in[c.start_of_contact - tmin].append([c.p_A, c.p_B])
+            edges_out[c.end_of_contact - tmin].append([c.p_A, c.p_B])
+
+        tn.edges_in = edges_in
+        tn.edges_out = edges_out
+
+        # Check for errors
+        print('edge changes errors: ', tc.verify(tn))
+
+        return tn
+
     def make_tacoma_network(self, max_dist, time_resolution):
         if self.METHOD in ['RWP', 'TLW', 'STEPS', 'STEPS_with_RWP']:
             # Get node positions
@@ -509,8 +490,19 @@ class HumanMobilityNetwork:
             print('edge changes errors: ', tc.verify(tn))
 
             return tn
-        
-        else:
+
+        elif self.METHOD == 'baseline':
+            # Get contacts
+            contacts = self.baseline()
+
+            return self.tn_from_contacts(contacts)
+
+        elif self.METHOD == 'random':
+            # TODO: implement
+            pass
+
+        elif self.METHOD == 'clique':
+            # TODO: implement
             pass
             
     def animate_movement(self):
