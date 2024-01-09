@@ -147,6 +147,7 @@ class HumanMobilityNetwork:
         self.v_RWP_min, self.v_RWP_max = .1, 1. # interval for uniform distribution to pick travel speed between waypoints from
         self.RWP_tpause_min, self.RWP_tpause_max = 0, 5 # ranges to pick waiting time in waypoint from
         self.tlw_max_wt = 100
+        self.min_contact_duration=None
 
     def RWP(self, NODE, SPACE, t_start_RWP, t_end_RWP, x, y):
         # This implementation of RWP is outdated right now
@@ -322,8 +323,6 @@ class HumanMobilityNetwork:
             # Set new Space
             NODE.space[t + travel_time: t + travel_time + tpause] = z
 
-            # RWP
-            # xp, yp = self.RWP(NODE, self.Location.spaces[z], t + travel_time, t + travel_time + tpause, x, y)
             # no RWP
             NODE.x[t + travel_time: t + travel_time + tpause] = x
             NODE.y[t + travel_time: t + travel_time + tpause] = y
@@ -337,6 +336,42 @@ class HumanMobilityNetwork:
         tlw = truncated_levy_walk(nagents, dimensions=dim, WT_MAX=self.tlw_max_wt)
         pos = np.array([next(tlw).copy() for _ in range(self.t_end - self.t_start)])
         return pos
+
+    def baseline(self):
+        start_times, end_times = self.df.activity_start_min.values, self.df.activity_end_min.values
+        event_ids = self.df.p_id.values
+        loc_id_end = self.df.loc_id_end.values[0]
+        # Takes a df containing all activities at location
+        # Returns all possible contacts
+
+        # Broadcast the start_time and end_time arrays for comparison with each other
+        overlap_start = np.maximum.outer(start_times, start_times)
+        overlap_end = np.minimum.outer(end_times, end_times)
+
+        # Calculate the overlap duration matrix 
+        overlap_durations = np.maximum(overlap_end - overlap_start, np.zeros(shape=overlap_start.shape)).astype('uint16')
+        
+        # Set lower triangle and main diagonal to zero (overlap of an event with itself and double counting)
+        overlap_durations = np.triu(overlap_durations, 1)
+
+        # Extract contact rows, cols
+        rows, cols = np.where(overlap_durations > 0)
+        p_A = event_ids[rows].astype('int')
+
+        # Save contacts to new DataFrame
+        df_contacts = {'p_A': p_A,'p_B': event_ids[cols].astype('int'), 
+                        'start_of_contact': overlap_start[rows, cols].astype('int'),
+                        'end_of_contact': overlap_end[rows, cols].astype('int'),
+                        'loc_id': np.repeat(loc_id_end, len(p_A)).astype('int32')}
+        
+        # Calculate contact durations
+        df_contacts['contact_duration'] = df_contacts.end_of_contact - df_contacts.start_of_contact
+
+        # (optional) drop contacts below specified contact duration
+        if self.min_contact_duration:
+            df_contacts = df_contacts[df_contacts.contact_duration >= self.min_contact_duration]
+        
+        return df_contacts
 
     def get_positions(self, grp, pos):
         # Helper function to get positions from mobility.py generator
@@ -354,7 +389,7 @@ class HumanMobilityNetwork:
             self.df['default_zone'] = self.df.p_id.map(default_zones_map)
             self.df.apply(self.STEPS, axis=1)
         
-        if method == 'STEPS_with_RWP':
+        elif method == 'STEPS_with_RWP':
             # get RWP positions
             dim = (self.Location.space_dim_x, self.Location.space_dim_y)
             pos = self.RWP_main(len(self.unique_nodes), dim=dim)
@@ -366,17 +401,26 @@ class HumanMobilityNetwork:
             # get STEPS positions
             self.df.apply(self.STEPS_with_RWP, pos=pos, axis=1)
         
-        if method == 'TLW':
+        elif method == 'TLW':
             pos = self.TLW(len(self.unique_nodes))
             result = self.df.apply(generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
         
-        if method == 'RWP':
+        elif method == 'RWP':
             dim = (self.Location.space_dim_x * self.Location.spaces_x, self.Location.space_dim_y * self.Location.spaces_x)
             pos = self.RWP_main(len(self.unique_nodes), dim)
 
             result = self.df.apply(generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
+
+        elif method == 'baseline':
+            df_contacts = self.baseline()
+
+        elif method == 'random':
+            pass
+
+        elif method == 'clique':
+            pass
     
     def get_spaces(self):
         # This method is not used right now
@@ -424,46 +468,50 @@ class HumanMobilityNetwork:
         return segments, dist
     
     def make_tacoma_network(self, max_dist, time_resolution):
-        # Get node positions
-        X = np.array([node.x for node in self.nodes])
-        Y = np.array([node.y for node in self.nodes])
-        all_pos = np.array((X, Y)).T
+        if self.METHOD in ['RWP', 'TLW', 'STEPS', 'STEPS_with_RWP']:
+            # Get node positions
+            X = np.array([node.x for node in self.nodes])
+            Y = np.array([node.y for node in self.nodes])
+            all_pos = np.array((X, Y)).T
 
-        # For testing
-        # all_pos = all_pos[:1000]
-        
-        # Initiate tacoma dynamic network
-        tn = tc.edge_lists()
-        tn.N = len(self.unique_nodes)
-        Nt = ceil((self.t_end - self.t_start)/time_resolution)
-        tn.t = list(range(Nt))
-        tn.tmax = Nt
-        tn.time_unit = '20s'
-        contacts = []
-        relevant_distances = coo_array((tn.N, tn.N))
-
-        for t, pos in enumerate(all_pos):
-            posTree = KDTree(pos)
-            # Add all contacts together
-            relevant_distances = relevant_distances + triu(posTree.sparse_distance_matrix(posTree, max_distance=max_dist, p=2), k=1)
-
-            if (t + 1) % time_resolution == 0:
-                # Keep only contacts that occured at least once during the time window
-                Aind, Bind = relevant_distances.nonzero()
-                contacts.append(list(zip(Aind, Bind)))
-                relevant_distances = coo_array((tn.N, tn.N))
+            # For testing
+            # all_pos = all_pos[:1000]
             
-            if t % 10000 == 0:
-                print(t)
+            # Initiate tacoma dynamic network
+            tn = tc.edge_lists()
+            tn.N = len(self.unique_nodes)
+            Nt = ceil((self.t_end - self.t_start)/time_resolution)
+            tn.t = list(range(Nt))
+            tn.tmax = Nt
+            tn.time_unit = '20s'
+            contacts = []
+            relevant_distances = coo_array((tn.N, tn.N))
 
-        # Check for errors and convert to edge_changes
-        tn.edges = contacts
-        print('edge list errors: ', tc.verify(tn))
+            for t, pos in enumerate(all_pos):
+                posTree = KDTree(pos)
+                # Add all contacts together
+                relevant_distances = relevant_distances + triu(posTree.sparse_distance_matrix(posTree, max_distance=max_dist, p=2), k=1)
 
-        tn = tc.convert(tn)
-        print('edge changes errors: ', tc.verify(tn))
+                if (t + 1) % time_resolution == 0:
+                    # Keep only contacts that occured at least once during the time window
+                    Aind, Bind = relevant_distances.nonzero()
+                    contacts.append(list(zip(Aind, Bind)))
+                    relevant_distances = coo_array((tn.N, tn.N))
+                
+                if t % 10000 == 0:
+                    print(t)
 
-        return tn
+            # Check for errors and convert to edge_changes
+            tn.edges = contacts
+            print('edge list errors: ', tc.verify(tn))
+
+            tn = tc.convert(tn)
+            print('edge changes errors: ', tc.verify(tn))
+
+            return tn
+        
+        else:
+            pass
             
     def animate_movement(self):
         fig, ax = plt.subplots(figsize=(9, 9))
@@ -501,6 +549,7 @@ class HumanMobilityNetwork:
         anim = FuncAnimation(fig, animate, range(round((self.t_end - self.t_start)/2), round((self.t_end - self.t_start)/2 + 300)), interval=200)
         anim.save(f'./plots/human_mobility/{self.Location.loc_id}_{self.METHOD}_animation_test.gif')
 
+
 def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
     # This method creates a visualization of a random path an agent takes
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
@@ -534,21 +583,33 @@ def interpolation_test(HumanMobilityModel, t0, tend, method):
     plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test.png')
 
 if __name__=='__main__':
+    # Simulation walkthrough for a single location
+    # Load data as a pandas DataFrame
     df_base = pd.read_parquet('./VF_data/rns_data_2.parquet')[['p_id', 'activity_start_min', 'loc_id_end', 'activity_name_mct', 'activity_end_min']]
     df_base = df_base.astype({'activity_start_min': 'uint32', 'activity_end_min': 'uint32'})
+    # Set simualtion time, for this example we simulate over the entire time range from the TAPAS data
     t_start, t_end = df_base.activity_start_min.min(), df_base.activity_end_min.max()
 
-    # location groups sorted by size
+    # Select a location
+    # group by location and sort by size (number of visitors during simulated day)
     locations = df_base.groupby('loc_id_end').size().sort_values(ascending=False).index.values
-
     # Some example locations
     loc1018 = df_base[df_base.loc_id_end == locations[1018]]
     loc1003 = df_base[df_base.loc_id_end == locations[1003]]
     loc1015 = df_base[df_base.loc_id_end == locations[1015]]
     loc2101 = df_base[df_base.loc_id_end == locations[2101]]
 
+    # Start simulation
+    # Build Location
     Loc = Location(1015, 10, 10, 10, 10)
+    # Build simulation class
     HN = HumanMobilityNetwork(loc1015, Loc, t_start, t_end, 1)
+    # (optional) set paraemters of simulation class
+    HN.tlw_max_wt = 100
+
+    # simulate
     HN.make_movement(method='STEPS_with_RWP')
+
+    # animate a part of the simulation
     HN.animate_movement()
     pass
