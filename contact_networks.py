@@ -148,6 +148,7 @@ class ContactNetwork:
         self.RWP_tpause_min, self.RWP_tpause_max = 0, 5 # ranges to pick waiting time in waypoint from
         self.tlw_max_wt = 100
         self.min_contact_duration=None
+        self.p_add, self.avg_contact_duration, self.sigma = .001, 10, 3
 
     def RWP(self, NODE, SPACE, t_start_RWP, t_end_RWP, x, y):
         # This implementation of RWP is outdated right now
@@ -359,10 +360,10 @@ class ContactNetwork:
         p_A = event_ids[rows].astype('int')
 
         # Save contacts to new DataFrame
-        df_contacts = {'p_A': p_A,'p_B': event_ids[cols].astype('int'), 
+        df_contacts = pd.DataFrame({'p_A': p_A,'p_B': event_ids[cols].astype('int'), 
                         'start_of_contact': overlap_start[rows, cols].astype('int'),
                         'end_of_contact': overlap_end[rows, cols].astype('int'),
-                        'loc_id': np.repeat(loc_id_end, len(p_A)).astype('int32')}
+                        'loc_id': np.repeat(loc_id_end, len(p_A)).astype('int32')})
         
         # Calculate contact durations
         df_contacts['contact_duration'] = df_contacts.end_of_contact - df_contacts.start_of_contact
@@ -373,9 +374,29 @@ class ContactNetwork:
         
         return df_contacts
 
-    def random(self):
+    def random(self, contact):
         # TODO: implement
-        return
+        tstart, tend = contact.start_of_contact, contact.end_of_contact
+
+        # Select contacts randomly
+        selected_contact = np.full(tend - tstart, False) 
+        # Random start times
+        start = np.where(np.random.rand(tend - tstart) <= self.p_add)[0]
+        # Random durations
+        duration = np.ceil(np.random.normal(self.avg_contact_duration, self.sigma, len(start))).astype('int')
+        duration[duration <= 0] = 1  # contact duration must be at least one time step
+        end = start + duration
+
+        # Avoid multi edges
+        for s, e in zip(start, end):
+            selected_contact[s: e + 1] = True
+        
+        selected_contact_start, selected_contact_end = util.boolean_blocks_indices(selected_contact)
+        selected_contact_start += tstart
+        selected_contact_end += tstart
+
+        n = len(selected_contact_start)
+        return pd.DataFrame({'p_A': np.full(n, contact.p_A), 'p_B': np.full(n, contact.p_B), 'start_of_contact': selected_contact_start, 'end_of_contact': selected_contact_end})
     
     def clique(self):
         # TODO: implement
@@ -433,6 +454,35 @@ class ContactNetwork:
         segments = np.stack((nodeA, nodeB), axis=1)
         return segments, dist
     
+    def change_tn_timeresolution(self, tn, time_resolution):
+        # tn is expected to be of instance edge_list
+        # Remove overshoot
+        print('changing resolution')
+        n_steps = floor((tn.tmax - tn.t0) / time_resolution)
+        # tn = tc.slice(tn, tn.t0, n_steps * time_resolution, verbose=True)
+
+        # Aggregate edges
+        edges_aggregated = set()
+        edges = []
+        for i, e in enumerate(tn.edges[:n_steps * time_resolution - time_resolution]):
+            edges_aggregated.update(e)
+
+            if (i + 1) % time_resolution == 0:
+                print(i * time_resolution)
+                edges.append(list(edges_aggregated))
+                edges_aggregated = []
+
+        # Initialize new temporal network
+        new_tn = tc.edge_lists()
+        new_tn.N = tn.N
+        new_tn.t = range(0, n_steps)
+        new_tn.tmax = n_steps
+        new_tn.edges = edges
+        new_tn.time_unit = f'{time_resolution}s'
+
+        return new_tn
+
+
     def tn_from_contacts(self, contacts):
         # Initilize tacoma temporal network
         tn = tc.edge_changes()
@@ -507,8 +557,14 @@ class ContactNetwork:
             return self.tn_from_contacts(contacts)
 
         elif self.METHOD == 'random':
-            # TODO: implement
-            pass
+            # Get all possible contacts
+            contacts = self.baseline()
+
+            # Select random contacts
+            selected_contacts = contacts.apply(self.random, axis=1)
+            selected_contacts = pd.concat(selected_contacts.to_list(), ignore_index=True)
+            
+            return self.tn_from_contacts(selected_contacts)
 
         elif self.METHOD == 'clique':
             # TODO: implement
@@ -608,13 +664,14 @@ if __name__=='__main__':
     # Build Location
     Loc = Location(1015, 10, 10, 10, 10)
     # Build simulation class
-    HN = ContactNetwork(loc1015, Loc, t_start, t_end, n_scale=60)
+    HN = ContactNetwork(loc1018, Loc, t_start, t_end, n_scale=1)
     # (optional) set paraemters of simulation class
     HN.tlw_max_wt = 100
 
     # simulate
-    HN.make_movement(method='baseline')
+    HN.make_movement(method='random')
 
+    print('get network')
     # animate a part of the simulation
-    HN.animate_movement()
+    HN.make_tacoma_network(None, None)
     pass

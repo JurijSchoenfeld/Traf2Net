@@ -129,3 +129,24 @@ def plot_contact_durations(result,
         ax.legend()
 
     return res
+
+def boolean_blocks_indices(bool_array):
+    # Find the indices where the values change from False to True or True to False
+    changes = np.where(np.diff(bool_array.astype(int)) != 0)[0] + 1
+
+    # If the first element is True, insert 0 at the beginning
+    if bool_array[0]:
+        changes = np.insert(changes, 0, 0)
+
+    # If the last element is True, append the array length
+    if bool_array[-1]:
+        changes = np.append(changes, len(bool_array) + 1)
+
+    # Reshape the indices into pairs
+    indices_pairs = changes.reshape(-1, 2)
+
+    # Get the first and last index of each pair
+    first_indices = indices_pairs[:, 0]
+    last_indices = indices_pairs[:, 1] - 1
+
+    return first_indices, last_indices
