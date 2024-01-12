@@ -13,15 +13,18 @@ import random
 from math import ceil, floor
 from mobility import truncated_levy_walk, random_waypoint
 import tacoma as tc
+import clique
 
 
 def attractor_pdf(x, k):
     return (k - 1)/(1+x)**k
 
+
 def attractor_icdf(k):
     # Returns a sample drawn from the attractor pdf
     p = random.uniform(0, 1)
     return (1-p)**(1/(1-k)) - 1
+
 
 def generate_array(row):
     return np.arange(row['activity_start_min'], row['activity_end_min'] + 1)
@@ -125,8 +128,6 @@ class ContactNetwork:
         # map p_id to index like
         util.map_pid(self.df)
 
-        # print(self.df)
-
         # Setting parameters
         self.t_scale = t_scale
         self.n_scale = n_scale
@@ -148,66 +149,16 @@ class ContactNetwork:
         self.RWP_tpause_min, self.RWP_tpause_max = 0, 5 # ranges to pick waiting time in waypoint from
         self.tlw_max_wt = 100
         self.min_contact_duration=None
-        self.p_add, self.avg_contact_duration, self.sigma = .001, 10, 3
+        self.p_add, self.pareto_shape = .001, 3.
+        self.N_peaoplePerSpace, self.p_space_change, self.mean, self.sigma = 15, 1/100, 10, 5
 
-    def RWP(self, NODE, SPACE, t_start_RWP, t_end_RWP, x, y):
-        # This implementation of RWP is outdated right now
-        t = t_start_RWP
-        xp, yp = x, y
-
-        while t < t_end_RWP:
-            # pause
-            tpause = random.randint(self.RWP_tpause_min, self.RWP_tpause_max)
-
-            
-            if t + tpause > t_end_RWP:
-                tpause = t_end_RWP - t
-
-            NODE.x[t: t + tpause] = xp
-            NODE.y[t: t + tpause] = yp
-
-            # choose new waypoint
-            x, y = SPACE.get_random_coords()
-
-            # travel to new waypoint
-            distance = ((x - xp)**2 + (y - yp)**2)**.5
-            travel_speed = random.uniform(self.v_RWP_min, self.v_RWP_max)
-            travel_time = round(distance / travel_speed)
-
-            if travel_time == 0:
-                # teleport node to new location
-                NODE.x[t + tpause] = x
-                NODE.y[t + tpause] = y
-
-                # Update time
-                t = t + travel_time + tpause
-                xp, yp = x, y
-                continue
-
-            if travel_time + tpause + t > t_end_RWP:
-                # If not enough time is left calculate only part of trajectory
-                vx = (x - xp) / travel_time
-                vy = (y - yp) / travel_time
-                travel_time = t_end_RWP - (tpause + t)
-                x = xp + travel_time * vx # travel_speed should be the vx component here
-                y = yp + travel_time * vy # travel_speed should be the vy component here
-            
-            x_interpolated = np.linspace(xp, x, travel_time)
-            y_interpolated = np.linspace(yp, y, travel_time)
-            NODE.x[t + tpause: t + tpause + travel_time] = x_interpolated
-            NODE.y[t + tpause: t + tpause + travel_time] = y_interpolated
-
-            # Update time
-            t = t + travel_time + tpause
-            xp, yp = x, y
-
-        return xp, yp
 
     def RWP_main(self, nagents, dim):
         # Returns RWP positions for n-agents moving in a room with dimensions dim
         rwp = random_waypoint(nagents, dimensions=dim, wt_max=5)
         pos = np.array([next(rwp).copy() for _ in range(self.t_end - self.t_start)])
         return pos
+
 
     def STEPS_with_RWP(self, row, pos):
         TS, TE = row.activity_start_min, row.activity_end_min
@@ -268,6 +219,7 @@ class ContactNetwork:
             # Update
             t = t + travel_time + tpause
             xp, yp = rwp_pos_x[-1], rwp_pos_y[-1]
+
 
     def STEPS(self, row):
         TS, TE = row.activity_start_min, row.activity_end_min
@@ -331,12 +283,14 @@ class ContactNetwork:
 
             # Update time
             t = t + travel_time + tpause
-    
+
+
     def TLW(self, nagents):
         dim =(self.Location.space_dim_x * self.Location.spaces_x, self.Location.space_dim_y * self.Location.spaces_x)
         tlw = truncated_levy_walk(nagents, dimensions=dim, WT_MAX=self.tlw_max_wt)
         pos = np.array([next(tlw).copy() for _ in range(self.t_end - self.t_start)])
         return pos
+
 
     def baseline(self):
         start_times, end_times = self.df.activity_start_min.values, self.df.activity_end_min.values
@@ -374,6 +328,7 @@ class ContactNetwork:
         
         return df_contacts
 
+
     def random(self, contact):
         # TODO: implement
         tstart, tend = contact.start_of_contact, contact.end_of_contact
@@ -383,7 +338,7 @@ class ContactNetwork:
         # Random start times
         start = np.where(np.random.rand(tend - tstart) <= self.p_add)[0]
         # Random durations
-        duration = np.ceil(np.random.normal(self.avg_contact_duration, self.sigma, len(start))).astype('int')
+        duration = np.ceil(np.random.pareto(self.pareto_shape, len(start))).astype('int')
         duration[duration <= 0] = 1  # contact duration must be at least one time step
         end = start + duration
 
@@ -397,16 +352,14 @@ class ContactNetwork:
 
         n = len(selected_contact_start)
         return pd.DataFrame({'p_A': np.full(n, contact.p_A), 'p_B': np.full(n, contact.p_B), 'start_of_contact': selected_contact_start, 'end_of_contact': selected_contact_end})
-    
-    def clique(self):
-        # TODO: implement
-        return
+
 
     def get_positions(self, grp, pos):
         # Helper function to get positions from mobility.py generator
         indices = np.concatenate(grp.to_numpy()) - 1
         self.nodes[grp.name].x[indices] = pos[indices, grp.name, 0]
         self.nodes[grp.name].y[indices] = pos[indices, grp.name, 1]
+
 
     def make_movement(self, method):
         self.METHOD = method
@@ -441,7 +394,8 @@ class ContactNetwork:
 
             result = self.df.apply(generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
-    
+
+
     def network_animation(self, pos):
         # Make network and retun segments, dist for animation
         posTree = KDTree(pos)
@@ -453,34 +407,6 @@ class ContactNetwork:
 
         segments = np.stack((nodeA, nodeB), axis=1)
         return segments, dist
-    
-    def change_tn_timeresolution(self, tn, time_resolution):
-        # tn is expected to be of instance edge_list
-        # Remove overshoot
-        print('changing resolution')
-        n_steps = floor((tn.tmax - tn.t0) / time_resolution)
-        # tn = tc.slice(tn, tn.t0, n_steps * time_resolution, verbose=True)
-
-        # Aggregate edges
-        edges_aggregated = set()
-        edges = []
-        for i, e in enumerate(tn.edges[:n_steps * time_resolution - time_resolution]):
-            edges_aggregated.update(e)
-
-            if (i + 1) % time_resolution == 0:
-                print(i * time_resolution)
-                edges.append(list(edges_aggregated))
-                edges_aggregated = []
-
-        # Initialize new temporal network
-        new_tn = tc.edge_lists()
-        new_tn.N = tn.N
-        new_tn.t = range(0, n_steps)
-        new_tn.tmax = n_steps
-        new_tn.edges = edges
-        new_tn.time_unit = f'{time_resolution}s'
-
-        return new_tn
 
 
     def tn_from_contacts(self, contacts):
@@ -495,7 +421,7 @@ class ContactNetwork:
 
         # Make edges
         edges_in, edges_out = [[] for _ in range(Nt)], [[] for _ in range(Nt)]
-        for _, c in contacts.iterrows():
+        for _, c in contacts[['p_A', 'p_B', 'start_of_contact', 'end_of_contact']].iterrows():
             edges_in[c.start_of_contact - tmin].append([c.p_A, c.p_B])
             edges_out[c.end_of_contact - tmin].append([c.p_A, c.p_B])
 
@@ -506,6 +432,7 @@ class ContactNetwork:
         print('edge changes errors: ', tc.verify(tn))
 
         return tn
+
 
     def make_tacoma_network(self, max_dist, time_resolution):
         if self.METHOD in ['RWP', 'TLW', 'STEPS', 'STEPS_with_RWP']:
@@ -567,9 +494,11 @@ class ContactNetwork:
             return self.tn_from_contacts(selected_contacts)
 
         elif self.METHOD == 'clique':
-            # TODO: implement
-            pass
-            
+            # Select contacts if nodes share space
+            space_contacts = clique.get_contacts_spaces(self.df, self.N_peaoplePerSpace, self.p_space_change, self.mean, self.sigma)
+            return self.tn_from_contacts(space_contacts)
+
+
     def animate_movement(self):
         if self.METHOD in ['baseline', 'random', 'clique']:
             print(f'The specified method: {self.METHOD} does not support animation')
@@ -628,6 +557,7 @@ def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
     
     plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test_singular.png')
 
+
 def interpolation_test(HumanMobilityModel, t0, tend, method):
     # This method creates a visualization of a random path multiple agents take
     fig, axs = plt.subplots(3, 3, figsize=(10, 10))
@@ -642,6 +572,7 @@ def interpolation_test(HumanMobilityModel, t0, tend, method):
         ax.scatter(xs[t0: tend], ys[t0: tend], s=1, alpha=.3)
     
     plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test.png')
+
 
 if __name__=='__main__':
     # Simulation walkthrough for a single location
@@ -669,7 +600,7 @@ if __name__=='__main__':
     HN.tlw_max_wt = 100
 
     # simulate
-    HN.make_movement(method='random')
+    HN.make_movement(method='clique')
 
     print('get network')
     # animate a part of the simulation
