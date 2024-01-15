@@ -7,9 +7,10 @@ import tacoma as tc
 from util import plot_contact_durations
 from tacoma.analysis import plot_degree_distribution
 import random
-import traf2net.contact_networks as hm
+import contact_networks as hm
 from scipy.sparse import csr_array
 from scipy.stats import ks_2samp
+import pyreadr
 
 
 # helper functions for loading saving networks, normalization and splitting them up into daily chunks
@@ -64,10 +65,49 @@ def collect_primaryschool():
 
 
 def collect_supermarket():
-    files = ['wed17_1516.csv', 'thu25_1516.csv', 'thu25_1617.csv', 'fri19_1516.csv', 'fri26_1516.csv']
-    path = './data_eval/'
+    path = './data_eval/data-shared/'
 
-    return [pd.read_csv(path + file) for file in files]
+    for i, file in enumerate(os.listdir(path)):
+        df = pyreadr.read_r(path + file)[None]
+
+        # Get unique nodes
+        unique_nodes = np.unique(df[['reporting_id', 'opposing_id']].values.flatten())
+        inds = np.arange(0, len(unique_nodes), 1)
+
+        # Get index like node names
+        node_int_dict = dict(zip(unique_nodes, inds))
+
+        # Map nodes to index
+        df['i'] = df.reporting_id.map(node_int_dict)
+        df['j'] = df.opposing_id.map(node_int_dict)
+
+        # Extract start and end times from reporting_id and opposing_id
+        df[['i_date', 'i_start', 'i_end']] = df['reporting_id'].str.split('_', expand=True).iloc[:, [1, 2, 3]]
+        df[['j_date', 'j_start', 'j_end']] = df['opposing_id'].str.split('_', expand=True).iloc[:, [1, 2, 3]]
+
+        # Combine date with start and end times
+        df['i_start'] = pd.to_datetime(df['i_date'] + ' ' + df['i_start'])
+        df['i_end'] = pd.to_datetime(df['i_date'] + ' ' + df['i_end'])
+        df['j_start'] = pd.to_datetime(df['j_date'] + ' ' + df['j_start'])
+        df['j_end'] = pd.to_datetime(df['j_date'] + ' ' + df['j_end'])
+
+        # Drop intermediate date columns
+        df.drop(['i_date', 'j_date'], axis=1, inplace=True)
+
+        # Find the minimum timestamp
+        min_timestamp = df[['i_start', 'i_end', 'j_start', 'j_end', 'timestamp']].min().min()
+
+        # Normalize temporal columns to seconds since the smallest occurred time
+        df['i_start_seconds'] = (df['i_start'] - min_timestamp).dt.total_seconds().astype('int')
+        df['i_end_seconds'] = (df['i_end'] - min_timestamp).dt.total_seconds().astype('int')
+        df['j_start_seconds'] = (df['j_start'] - min_timestamp).dt.total_seconds().astype('int')
+        df['j_end_seconds'] = (df['j_end'] - min_timestamp).dt.total_seconds().astype('int')
+        df['t'] = (df['timestamp'] - min_timestamp).dt.total_seconds().astype('int')
+
+        df['date'] = pd.to_datetime(df.timestamp, unit='s')
+        df['day'] = df.date.dt.date 
+
+        df.to_parquet(f'./data_eval_split/supermarked/f{i}_{df.loc[0].day}.parquet')   
 
 
 def collect_gallery():
@@ -224,7 +264,7 @@ class EvaluationNetwork:
 
 if __name__ == '__main__':
     # path = './data_eval_split/gallery/f57_2009-07-04.parquet'
-    EN = EvaluationNetwork('gallery')
+    EN = EvaluationNetwork('supermarked')
     EN.to_tacoma_tn()
     # EN.overview_plots()
     EN.eval_df_to_trajectory(180)

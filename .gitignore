@@ -405,3 +405,16 @@ data_eval/data-shared/20210324_processed.RDS
 data_eval/data-shared/20210325_processed.RDS
 data_eval/data-shared/20210326_processed.RDS
 berlin.gif
+data_eval/data-shared/20210318_processed
+data_eval/data-shared/20210319_processed
+data_eval/data-shared/20210324_processed
+data_eval/data-shared/20210325_processed
+data_eval/data-shared/20210326_processed
+data_eval_split/supermarked/f0_2021-03-17.parquet
+data_eval_split/supermarked/f1_2021-03-18.parquet
+data_eval_split/supermarked/f2_2021-03-19.parquet
+data_eval_split/supermarked/f3_2021-03-24.parquet
+data_eval_split/supermarked/f4_2021-03-25.parquet
+data_eval_split/supermarked/f5_2021-03-26.parquet
+plots/hood_ilustration.png
+plots/human_mobility/1015_baseline_animation_test.gif

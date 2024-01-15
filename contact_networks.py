@@ -148,7 +148,7 @@ class ContactNetwork:
         self.v_RWP_min, self.v_RWP_max = .1, 1. # interval for uniform distribution to pick travel speed between waypoints from
         self.RWP_tpause_min, self.RWP_tpause_max = 0, 5 # ranges to pick waiting time in waypoint from
         self.tlw_max_wt = 100
-        self.min_contact_duration=None
+        self.min_contact_duration = None
         self.p_add, self.pareto_shape = .001, 3.
         self.N_peaoplePerSpace, self.p_space_change, self.mean, self.sigma = 15, 1/100, 10, 5
 
