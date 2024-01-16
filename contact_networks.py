@@ -475,8 +475,8 @@ class ContactNetwork:
 
             return tn
 
-        if self.METHOD in ['baseline', 'random', 'clique'] and self.time_scale_data != 60:
-            print(f'{self.METHOD} only supports time_scale_data = 60 \nUpdate time resolution of your data and set time_scale_data accordingly or choose a different method')
+        if self.METHOD in ['baseline', 'random', 'clique'] and self.time_scale_data != 1:
+            print(f'{self.METHOD} only supports time_scale_data = 1(minute) \nUpdate time resolution of your data and set time_scale_data accordingly or choose a different method')
             return
 
 
@@ -610,13 +610,13 @@ if __name__=='__main__':
     # Build Location
     Loc = Location(1015, 10, 10, 10, 10)
     # Build simulation class with one of the example locations
-    HN = ContactNetwork(loc1018, Loc, t_start, t_end, time_scale_data=60)
+    HN = ContactNetwork(loc1018, Loc, t_start, t_end, time_scale_data=1)
 
     # (optional) set paraemters of simulation class
     HN.tlw_max_wt = 100
 
     # simulate movement, non movement based methods are simulated during network creation
-    HN.make_movement(method='TLW')
+    HN.make_movement(method='baseline')
 
     # animate a part of the simulation, supported only by movement based methods
     HN.animate_movement()
