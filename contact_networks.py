@@ -26,10 +26,6 @@ def attractor_icdf(k):
     return (1-p)**(1/(1-k)) - 1
 
 
-def generate_array(row):
-    return np.arange(row['activity_start_min'], row['activity_end_min'] + 1)
-
-
 class Node:
     def __init__(self, node_id, tmax):
         self.id = node_id
@@ -102,48 +98,42 @@ class Location:
 
 
 class ContactNetwork:
-    def __init__(self, df, Location, t_start, t_end, t_scale=1, n_scale=60):
+    def __init__(self, df, Location, t_start, t_end, time_scale_data=60):
         '''
-        df: a pandas data frame where every row is trajectory concluding in loc_id_end, 
+        df: a pandas data frame where every row is trajectory concluding in Location, 
         with the following coloumns:
             p_id: a unique identifier mapping to a individual
-            activity_start_min/activity_end_min: start/end time of the activity in minutes passed to the beginning
-            of the simulation
+            activity_start_min/activity_end_min: start/end time of the activity in the Location
             activity_name_mct: describtion of the activity done at location loc_id_end
         
         Location: An instance of Location class defining important parameters for simulation
 
         t_start, t_end: start/end time of the simulation. 
 
-        t_scale: Time scale of the simulation is 1 second i.e. one time step in the simulation happens every 1 second. The t_scale parameter is relevant if you want to return the dynamic network. 
-        One time step in the dynamic network is aggregated from the simulation. An edge occurs if agents i,j met at least once during t_scale time steps in the simulation.
-        n_scale: The number of seconds one time unit in the df represents
+        time_scale_data: The number of seconds one time unit in the df represents
         '''
         self.Location = Location
         self.df = df
-        print('start')
-        # FOR TESTING!!!
+        # FOR TESTING!!! Simulate only a few nodes
         # self.df = self.df.head(100)
 
         # map p_id to index like
         util.map_pid(self.df)
 
         # Setting parameters
-        self.t_scale = t_scale
-        self.n_scale = n_scale
+        self.time_scale_data = time_scale_data
         self.unique_nodes = self.df.p_id.unique()
-        self.t_start = int(t_start * self.n_scale) # convert to seconds
-        self.t_end = ceil(t_end * self.n_scale) # convert to seconds
-        self.df.activity_start_min = (self.df.activity_start_min * self.n_scale).round().astype('int') # convert to seconds
-        self.df.activity_end_min = (self.df.activity_end_min * self.n_scale).round().astype('int') # convert to seconds
+        self.t_start = int(t_start * self.time_scale_data) # convert to seconds
+        self.t_end = ceil(t_end * self.time_scale_data) # convert to seconds
+        self.df.activity_start_min = (self.df.activity_start_min * self.time_scale_data).round().astype('int') # convert to seconds
+        self.df.activity_end_min = (self.df.activity_end_min * self.time_scale_data).round().astype('int') # convert to seconds
 
         # Initialize nodes this will be done on simulation level later
         self.nodes = [Node(node, self.t_end) for node in np.arange(0, self.df.p_id.max() + 1)]
 
         # Model parameters
         self.k = 1.2 # Strenght of the attractor must be greater than 1
-        self.STEPS_pause_time = 1.2 # shape parameter of Pareto PDF, this value has to be set interms of t_scal, it doesn't scale linear
-        # self.STEPS_pause_time_inv = 1 / self.STEPS_pause_time
+        self.STEPS_pause_min, self.STEPS_pause_max = 20, 30
         self.v_STEPS_min, self.v_STEPS_max = .83, 3.2 # interval for uniform distribution to pick travel speed between zones from
         self.v_RWP_min, self.v_RWP_max = .1, 1. # interval for uniform distribution to pick travel speed between waypoints from
         self.RWP_tpause_min, self.RWP_tpause_max = 0, 5 # ranges to pick waiting time in waypoint from
@@ -151,6 +141,8 @@ class ContactNetwork:
         self.min_contact_duration = None
         self.p_add, self.pareto_shape = .001, 3.
         self.N_peaoplePerSpace, self.p_space_change, self.mean, self.sigma = 15, 1/100, 10, 5
+
+        print('Initialized contact network model')
 
 
     def RWP_main(self, nagents, dim):
@@ -177,7 +169,7 @@ class ContactNetwork:
             z = np.random.choice(possible_new_z, 1)[0]
 
             # Prepare RWP
-            tpause = random.randint(20, 30)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
+            tpause = random.randint(self.STEPS_pause_min, self.STEPS_pause_max)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
             if TE - TS - tpause <= 0:
                 tpause = TE - TS
                 
@@ -228,7 +220,7 @@ class ContactNetwork:
         
         # Initialize
         t = TS
-        tpause = random.randint(20, 30)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
+        tpause = random.randint(self.STEPS_pause_min, self.STEPS_pause_max)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
 
         if t + tpause > TE:
             # TODO: Find a smarter way to end trajectory in the future
@@ -248,7 +240,7 @@ class ContactNetwork:
             possible_new_z, = np.where(self.Location.distance_matrix[Z0] <= attractor_icdf(self.k))
             z = np.random.choice(possible_new_z, 1)[0]
             x, y = self.Location.spaces[z].get_random_coords()
-            tpause = random.randint(20, 30)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
+            tpause = random.randint(self.STEPS_pause_min, self.STEPS_pause_max)  # this bit is not in line with the STEPS paper, instead it uses the probability distribution from their Matlab code 
 
             # Calculate travel trajectory
             distance = ((x - xp)**2 + (y - yp)**2)**.5
@@ -362,7 +354,12 @@ class ContactNetwork:
 
 
     def make_movement(self, method):
+        print('Start making movement')
         self.METHOD = method
+
+        if method in ['baseline', 'random', 'clique']:
+            print(f'{method} is not movement based. Return')
+            return
 
         if method == 'STEPS':
             # Assign default zones to all pid
@@ -385,14 +382,14 @@ class ContactNetwork:
         
         elif method == 'TLW':
             pos = self.TLW(len(self.unique_nodes))
-            result = self.df.apply(generate_array, axis=1)
+            result = self.df.apply(util.generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
         
         elif method == 'RWP':
             dim = (self.Location.space_dim_x * self.Location.spaces_x, self.Location.space_dim_y * self.Location.spaces_x)
             pos = self.RWP_main(len(self.unique_nodes), dim)
 
-            result = self.df.apply(generate_array, axis=1)
+            result = self.df.apply(util.generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
 
 
@@ -434,15 +431,16 @@ class ContactNetwork:
         return tn
 
 
-    def make_tacoma_network(self, max_dist, time_resolution):
+    def make_tacoma_network(self, max_dist=2, time_resolution=20):
+        print('Start network construction')
         if self.METHOD in ['RWP', 'TLW', 'STEPS', 'STEPS_with_RWP']:
             # Get node positions
             X = np.array([node.x for node in self.nodes])
             Y = np.array([node.y for node in self.nodes])
             all_pos = np.array((X, Y)).T
 
-            # For testing
-            # all_pos = all_pos[:1000]
+            # For testing, take only positions from a few nodes
+            # all_pos = all_pos[:100] 
             
             # Initiate tacoma dynamic network
             tn = tc.edge_lists()
@@ -466,7 +464,7 @@ class ContactNetwork:
                     relevant_distances = coo_array((tn.N, tn.N))
                 
                 if t % 10000 == 0:
-                    print(t)
+                    print(f'{t}/{self.t_end}')
 
             # Check for errors and convert to edge_changes
             tn.edges = contacts
@@ -476,6 +474,11 @@ class ContactNetwork:
             print('edge changes errors: ', tc.verify(tn))
 
             return tn
+
+        if self.METHOD in ['baseline', 'random', 'clique'] and self.time_scale_data != 60:
+            print(f'{self.METHOD} only supports time_scale_data = 60 \nUpdate time resolution of your data and set time_scale_data accordingly or choose a different method')
+            return
+
 
         elif self.METHOD == 'baseline':
             # Get contacts
@@ -500,6 +503,7 @@ class ContactNetwork:
 
 
     def animate_movement(self):
+        print('Start animation')
         if self.METHOD in ['baseline', 'random', 'clique']:
             print(f'The specified method: {self.METHOD} does not support animation')
             return
@@ -520,9 +524,11 @@ class ContactNetwork:
         cbar = plt.colorbar(lc, ax=ax)
         cbar.set_label('distance [m]')
 
+        frame_start, frame_stop = round((self.t_end - self.t_start)/2), round((self.t_end - self.t_start)/2 + 300)  # animate 300 frames
+
         def animate(frame):
             if frame % 10 == 0:
-                print(f'{frame}/{self.t_end - self.t_start}')
+                print(f'{frame}/{frame_stop}')
 
             # update nodes
             x = X[:, frame]
@@ -536,11 +542,15 @@ class ContactNetwork:
             lc.set_segments(segments)
             lc.set_array(dist)
 
-        anim = FuncAnimation(fig, animate, range(round((self.t_end - self.t_start)/2), round((self.t_end - self.t_start)/2 + 300)), interval=200)
+        anim = FuncAnimation(fig, animate, range(frame_start, frame_stop), interval=200)
         anim.save(f'./plots/human_mobility/{self.Location.loc_id}_{self.METHOD}_animation_test.gif')
 
 
-def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
+def interpolation_test_singular(HumanMobilityModel, t0, tend):
+    if HumanMobilityModel.METHOD in ['baseline', 'random', 'clique']:
+        print(f'{HumanMobilityModel.METHOD} does not create movement. Nothing to plot here')
+        return
+
     # This method creates a visualization of a random path an agent takes
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     df = HumanMobilityModel.df
@@ -553,12 +563,16 @@ def interpolation_test_singular(HumanMobilityModel, t0, tend, method):
     xs, ys = HumanMobilityModel.nodes[an].x, HumanMobilityModel.nodes[an].y
     ax.scatter(xs[t0: tend], ys[t0: tend], s=3, alpha=1)
     xs = xs[t0: tend]
-    print(np.where(np.isnan(xs)))
+    #print(np.where(np.isnan(xs)))
     
-    plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test_singular.png')
+    plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{HumanMobilityModel.METHOD}_interpolation_test_singular.png')
 
 
-def interpolation_test(HumanMobilityModel, t0, tend, method):
+def interpolation_test(HumanMobilityModel, t0, tend):
+    if HumanMobilityModel.METHOD in ['baseline', 'random', 'clique']:
+        print(f'{HumanMobilityModel.METHOD} does not create movement. Nothing to plot here')
+        return
+    
     # This method creates a visualization of a random path multiple agents take
     fig, axs = plt.subplots(3, 3, figsize=(10, 10))
     df = HumanMobilityModel.df
@@ -571,21 +585,22 @@ def interpolation_test(HumanMobilityModel, t0, tend, method):
         xs, ys = HumanMobilityModel.nodes[an].x, HumanMobilityModel.nodes[an].y
         ax.scatter(xs[t0: tend], ys[t0: tend], s=1, alpha=.3)
     
-    plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{method}_interpolation_test.png')
+    plt.savefig(f'./plots/human_mobility/{HumanMobilityModel.Location.loc_id}_{HumanMobilityModel.METHOD}_interpolation_test.png')
 
 
 if __name__=='__main__':
     # Simulation walkthrough for a single location
     # Load data as a pandas DataFrame
     df_base = pd.read_parquet('./VF_data/rns_data_2.parquet')[['p_id', 'activity_start_min', 'loc_id_end', 'activity_name_mct', 'activity_end_min']]
-    df_base = df_base.astype({'activity_start_min': 'uint32', 'activity_end_min': 'uint32'})
+    df_base = df_base.astype({'activity_start_min': 'uint32', 'activity_end_min': 'uint32'})  # Increase memory for simulation in seconds
+
     # Set simualtion time, for this example we simulate over the entire time range from the TAPAS data
     t_start, t_end = df_base.activity_start_min.min(), df_base.activity_end_min.max()
 
     # Select a location
     # group by location and sort by size (number of visitors during simulated day)
     locations = df_base.groupby('loc_id_end').size().sort_values(ascending=False).index.values
-    # Some example locations
+    # Some example locations, that where used in our recent paper
     loc1018 = df_base[df_base.loc_id_end == locations[1018]]
     loc1003 = df_base[df_base.loc_id_end == locations[1003]]
     loc1015 = df_base[df_base.loc_id_end == locations[1015]]
@@ -594,15 +609,22 @@ if __name__=='__main__':
     # Start simulation
     # Build Location
     Loc = Location(1015, 10, 10, 10, 10)
-    # Build simulation class
-    HN = ContactNetwork(loc1018, Loc, t_start, t_end, n_scale=1)
+    # Build simulation class with one of the example locations
+    HN = ContactNetwork(loc1018, Loc, t_start, t_end, time_scale_data=60)
+
     # (optional) set paraemters of simulation class
     HN.tlw_max_wt = 100
 
-    # simulate
-    HN.make_movement(method='clique')
+    # simulate movement, non movement based methods are simulated during network creation
+    HN.make_movement(method='TLW')
 
-    print('get network')
-    # animate a part of the simulation
-    HN.make_tacoma_network(None, None)
+    # animate a part of the simulation, supported only by movement based methods
+    HN.animate_movement()
+
+    # Make simulation to tacoma network
+    HN.make_tacoma_network()
+
+    # This will make a visualization of one ore many node trajectories, supported only by movement based methods
+    interpolation_test_singular(HN, 500*60, 550*60)
+    interpolation_test(HN, 500*60, 550*60)
     pass

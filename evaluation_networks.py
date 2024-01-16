@@ -107,6 +107,16 @@ def collect_supermarket():
         df['date'] = pd.to_datetime(df.timestamp, unit='s')
         df['day'] = df.date.dt.date 
 
+        # Remove double edges
+        # Sort 'i' and 'j' in each row to make them interchangeable
+        df[['i', 'j']] = np.sort(df[['i', 'j']], axis=1)
+
+        # Create a mask for duplicated rows considering 'i' and 'j' as interchangeable
+        mask = df.duplicated(subset=['i', 'j', 't'])
+
+        # Apply the mask to keep only non-duplicated rows
+        df = df[mask].reset_index(drop=True)
+
         df.to_parquet(f'./data_eval_split/supermarked/f{i}_{df.loc[0].day}.parquet')   
 
 
@@ -264,13 +274,14 @@ class EvaluationNetwork:
 
 if __name__ == '__main__':
     # path = './data_eval_split/gallery/f57_2009-07-04.parquet'
-    EN = EvaluationNetwork('supermarked')
+    '''EN = EvaluationNetwork('supermarked')
     EN.to_tacoma_tn()
     # EN.overview_plots()
     EN.eval_df_to_trajectory(180)
     Loc = hm.Location(f'{EN.name}_{EN.name_identifier}', 3, 3, 10, 10)
     EN.hm_approximation(Loc, 'RWP', 20)
-    EN.overview_plots(True)
+    EN.overview_plots(True)'''
+    collect_supermarket()
 
     
 

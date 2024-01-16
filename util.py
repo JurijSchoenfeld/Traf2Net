@@ -1,9 +1,7 @@
 import pandas as pd
 import numpy as np
 from math import log10
-
 from collections import Counter
-
 import numpy as np
 
 try:
@@ -16,6 +14,8 @@ except ImportError as e:
 from tacoma import marker_sequence
 from tacoma import color_sequence
 from tacoma import get_logarithmic_histogram
+
+
 def map_pid(df):
     # Helper function replacing every p_id with unique index going from 0 to number of unique p_id. 
     pd.options.mode.chained_assignment = None  # default='warn'
@@ -25,6 +25,7 @@ def map_pid(df):
     df['p_id'] = df.p_id.map(node_int_dict)
 
     return df
+
 
 def plot_contact_durations(result,
                            ax,
@@ -150,3 +151,7 @@ def boolean_blocks_indices(bool_array):
     last_indices = indices_pairs[:, 1] - 1
 
     return first_indices, last_indices
+
+
+def generate_array(row):
+    return np.arange(row['activity_start_min'], row['activity_end_min'] + 1)
