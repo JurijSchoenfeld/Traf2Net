@@ -3,6 +3,7 @@ import numpy as np
 from math import log10
 from collections import Counter
 import numpy as np
+from itertools import product
 
 try:
     import matplotlib.pyplot as plt
@@ -155,3 +156,17 @@ def boolean_blocks_indices(bool_array):
 
 def generate_array(row):
     return np.arange(row['activity_start_min'], row['activity_end_min'] + 1)
+
+def combine_arrays(*arrays):
+    # Use itertools.product to get all combinations of elements
+    combinations = list(product(*arrays))
+
+    # Convert the combinations to a NumPy array
+    combined_array = np.array(combinations)
+
+    return combined_array
+
+def moving_average(a, n=3):
+    ret = np.cumsum(a, dtype=float)
+    ret[n:] = ret[n:] - ret[:-n]
+    return ret[n - 1:] / n

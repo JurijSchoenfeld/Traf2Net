@@ -3,14 +3,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import tacoma as tc
-#from tacoma.analysis import plot_contact_durations
-from util import plot_contact_durations
+import re
+from util import plot_contact_durations, moving_average
 from tacoma.analysis import plot_degree_distribution
 import random
-import contact_networks as hm
+import contact_networks as cn
 from scipy.sparse import csr_array
 from scipy.stats import ks_2samp
 import pyreadr
+import teneto
 
 
 # helper functions for loading saving networks, normalization and splitting them up into daily chunks
@@ -64,7 +65,7 @@ def collect_primaryschool():
             x.to_parquet(f'./data_eval_split/primaryschool/{grp}.parquet')
 
 
-def collect_supermarket():
+def collect_supermarked():
     path = './data_eval/data-shared/'
 
     for i, file in enumerate(os.listdir(path)):
@@ -73,6 +74,21 @@ def collect_supermarket():
         # Get unique nodes
         unique_nodes = np.unique(df[['reporting_id', 'opposing_id']].values.flatten())
         inds = np.arange(0, len(unique_nodes), 1)
+
+        # Extract date, time1, and time2 from each string in the array
+        date_time_data = [entry.split('_')[1:4] for entry in unique_nodes]
+
+        # Convert date, time1, and time2 to a pandas DataFrame
+        df_trajectories = pd.DataFrame(date_time_data, columns=['date', 'time1', 'time2'])
+
+        # Combine date and time columns, then convert to datetime format
+        df_trajectories['activity_start_min'] = pd.to_datetime(df_trajectories['date'] + ' ' + df_trajectories['time1'], format='%Y-%m-%d %H:%M:%S')
+        df_trajectories['activity_end_min'] = pd.to_datetime(df_trajectories['date'] + ' ' + df_trajectories['time2'], format='%Y-%m-%d %H:%M:%S')
+
+        # Drop unnecessary columns
+        df_trajectories.drop(['date', 'time1', 'time2'], axis=1, inplace=True)
+        df_trajectories['p_id'] = np.arange(len(unique_nodes))
+
 
         # Get index like node names
         node_int_dict = dict(zip(unique_nodes, inds))
@@ -103,6 +119,8 @@ def collect_supermarket():
         df['j_start_seconds'] = (df['j_start'] - min_timestamp).dt.total_seconds().astype('int')
         df['j_end_seconds'] = (df['j_end'] - min_timestamp).dt.total_seconds().astype('int')
         df['t'] = (df['timestamp'] - min_timestamp).dt.total_seconds().astype('int')
+        df_trajectories['activity_start_min'] = (df_trajectories['activity_start_min'] - min_timestamp).dt.total_seconds().astype('int')
+        df_trajectories['activity_end_min'] = (df_trajectories['activity_end_min'] - min_timestamp).dt.total_seconds().astype('int')
 
         df['date'] = pd.to_datetime(df.timestamp, unit='s')
         df['day'] = df.date.dt.date 
@@ -115,9 +133,13 @@ def collect_supermarket():
         mask = df.duplicated(subset=['i', 'j', 't'])
 
         # Apply the mask to keep only non-duplicated rows
-        df = df[mask].reset_index(drop=True)
+        df = df[mask]
+
+        # Keep only contacts with distance <= 2m
+        df = df[df.distance <= 200.0].reset_index(drop=True)
 
         df.to_parquet(f'./data_eval_split/supermarked/f{i}_{df.loc[0].day}.parquet')   
+        df_trajectories.to_parquet(f'./data_eval_split/supermarked/f{i}_{df.loc[0].day}_trajectories.parquet')
 
 
 def collect_gallery():
@@ -192,38 +214,53 @@ class EvaluationNetwork:
     
     
     def eval_df_to_trajectory(self, switch_off_time):
-        ij = np.hstack((self.df.i.values, self.df.j.values))
-        tt = np.hstack((self.df.t.values, self.df.t.values))
-        df2 = pd.DataFrame(data={'ij': ij, 'tt': tt})
+        # This method takes data from an empirically observed network and returns agent trajectories
+        # A trajectory starts when an agent has his first edge and ends with its last active edge whenever an agend has no contacts for switch_off_time
 
-        # Group by the 'i' column and aggregate the 't' values into a sorted list
-        contacts = df2.groupby('ij')['tt'].apply(lambda x: np.array(sorted(x))).reset_index()
-        p_id, activity_start_min, activity_end_min = [], [], []
+        if self.name == 'supermarked':
+            self.df = pd.read_parquet(f'./data_eval_split/supermarked/{self.name_identifier}_trajectories.parquet')
+            return self.df
+        
+        else:  
+            ij = np.hstack((self.df.i.values, self.df.j.values))
+            tt = np.hstack((self.df.t.values, self.df.t.values))
+            df2 = pd.DataFrame(data={'ij': ij, 'tt': tt})
 
-        for _, person_contact in contacts.iterrows():
-            switch_off_points = np.where(np.diff(person_contact.tt) >= switch_off_time)[0] 
-            switch_off_points = np.insert(switch_off_points, [0, len(switch_off_points)], [-1, len(person_contact.tt) - 1])
+            # Group by the 'i' column and aggregate the 't' values into a sorted list
+            contacts = df2.groupby('ij')['tt'].apply(lambda x: np.array(sorted(x))).reset_index()
+            p_id, activity_start_min, activity_end_min = [], [], []
 
-            # Generate trajectories
-            for _, (sonp, sofp) in enumerate(zip(switch_off_points[:-1], switch_off_points[1:])):
-                p_id.append(person_contact.ij)
-                activity_start_min.append(person_contact.tt[sonp + 1])
-                activity_end_min.append(person_contact.tt[sofp])
-            
-        self.df = pd.DataFrame({'p_id': p_id, 'activity_start_min': activity_start_min, 'activity_end_min': activity_end_min})
-        return self.df
+            for _, person_contact in contacts.iterrows():
+                switch_off_points = np.where(np.diff(person_contact.tt) >= switch_off_time)[0] 
+                switch_off_points = np.insert(switch_off_points, [0, len(switch_off_points)], [-1, len(person_contact.tt) - 1])
+
+                # Generate trajectories
+                for _, (sonp, sofp) in enumerate(zip(switch_off_points[:-1], switch_off_points[1:])):
+                    p_id.append(person_contact.ij)
+                    activity_start_min.append(person_contact.tt[sonp + 1])
+                    activity_end_min.append(person_contact.tt[sofp])
+                
+            self.df = pd.DataFrame({'p_id': p_id, 'activity_start_min': activity_start_min, 'activity_end_min': activity_end_min})
+            return self.df
     
-    def hm_approximation(self, Loc, method, time_resotlution):
+
+    def cn_approximation(self, Loc, method, time_resotlution, model_kwargs=None):
         self.method = method
         ts, te = self.df.activity_start_min.min(), self.df.activity_end_min.max() 
-        HM = hm.ContactNetwork(self.df, Loc, ts, te, 20, 20)
-        HM.make_movement(method=method)
+        CN = cn.ContactNetwork(self.df, Loc, ts, te, 1)
+
+        # Set parameters of model
+        if model_kwargs:
+            for par, value in model_kwargs.items():
+                setattr(CN, par, value)
+
+        CN.make_movement(method=method)
         print('finished simulation \nstart working on network')
 
-        self.tn_approx = HM.make_tacoma_network(1.5, time_resotlution)
+        self.tn_approx = CN.make_tacoma_network(2.0, time_resotlution)
             
 
-    def overview_plots(self, approx):
+    def overview_plots(self, approx, ind=None, smoothing=60):
         if approx:
             networks = [self.tn, self.tn_approx]
         else:
@@ -250,8 +287,9 @@ class EvaluationNetwork:
             plot_degree_distribution(degree, ax2, label=labels2[i])
 
             _, _, m = tc.edge_counts(tn)
-            ax4.set_title('edge_counts')
-            ax4.plot(tn.t, m[:-1], color=colors[i], label=labels2[i], alpha=.5)
+            m, t = moving_average(m[:-1], smoothing), moving_average(tn.t, smoothing)
+            ax4.set_title('rolling average edge_counts')
+            ax4.plot(t, m, color=colors[i], label=labels2[i], alpha=.5)
 
         ks_test_ICTs = ks_2samp(ICTs[0], ICTs[1], alternative='tow-sided')
         ks_test_CDs = ks_2samp(CDs[0], CDs[1], alternative='two-sided')
@@ -268,8 +306,10 @@ class EvaluationNetwork:
             ax.legend()
 
         plt.tight_layout()
-        plt.savefig(f'./plots/eval_networks/overview_{self.name}_{self.name_identifier}_approx_{approx}_{self.method}.png')
+        plt.savefig(f'./plots/eval_networks/overview_{self.name}_{self.name_identifier}_approx_{approx}_{self.method}_{ind}.png')
         plt.close()
+
+        return ks_test_CDs.statistic, ks_test_CDs.pvalue, ks_test_ICTs.statistic, ks_test_ICTs.pvalue
 
 
 if __name__ == '__main__':
@@ -281,7 +321,7 @@ if __name__ == '__main__':
     Loc = hm.Location(f'{EN.name}_{EN.name_identifier}', 3, 3, 10, 10)
     EN.hm_approximation(Loc, 'RWP', 20)
     EN.overview_plots(True)'''
-    collect_supermarket()
+    collect_supermarked()
 
     
 

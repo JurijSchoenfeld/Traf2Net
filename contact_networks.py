@@ -128,18 +128,32 @@ class ContactNetwork:
         self.df.activity_start_min = (self.df.activity_start_min * self.time_scale_data).round().astype('int') # convert to seconds
         self.df.activity_end_min = (self.df.activity_end_min * self.time_scale_data).round().astype('int') # convert to seconds
 
-        # Initialize nodes this will be done on simulation level later
+        # Initialize nodes this will be done on simulation level later on
         self.nodes = [Node(node, self.t_end) for node in np.arange(0, self.df.p_id.max() + 1)]
 
         # Model parameters
+        # STEPS
         self.k = 1.2 # Strenght of the attractor must be greater than 1
         self.STEPS_pause_min, self.STEPS_pause_max = 20, 30
         self.v_STEPS_min, self.v_STEPS_max = .83, 3.2 # interval for uniform distribution to pick travel speed between zones from
+        
+        # RWP
         self.v_RWP_min, self.v_RWP_max = .1, 1. # interval for uniform distribution to pick travel speed between waypoints from
-        self.RWP_tpause_min, self.RWP_tpause_max = 0, 5 # ranges to pick waiting time in waypoint from
-        self.tlw_max_wt = 100
+        self.RWP_WT_MAX = 5  # max waiting time
+        
+        # TLW
+        self.TLW_WT_MAX = 100  # maximum value of the waiting time distribution. Default is 100
+        self.TLW_WT_EXP = -1.8  # exponent of the waiting time distribution. Default is -1.8
+        self.FL_MAX = 50  # maximum value of the flight length distribution. Default is 50
+        self.FL_EXP = -2.6  # exponent of the flight length distribution. Default is -2.6
+
+        # Baseline
         self.min_contact_duration = None
+
+        # Random
         self.p_add, self.pareto_shape = .001, 3.
+
+        # Clique
         self.N_peaoplePerSpace, self.p_space_change, self.mean, self.sigma = 15, 1/100, 10, 5
 
         print('Initialized contact network model')
@@ -147,7 +161,7 @@ class ContactNetwork:
 
     def RWP_main(self, nagents, dim):
         # Returns RWP positions for n-agents moving in a room with dimensions dim
-        rwp = random_waypoint(nagents, dimensions=dim, wt_max=5)
+        rwp = random_waypoint(nagents, dimensions=dim, wt_max=self.RWP_WT_MAX, velocity=(self.v_RWP_min, self.v_RWP_max))
         pos = np.array([next(rwp).copy() for _ in range(self.t_end - self.t_start)])
         return pos
 
@@ -279,7 +293,7 @@ class ContactNetwork:
 
     def TLW(self, nagents):
         dim =(self.Location.space_dim_x * self.Location.spaces_x, self.Location.space_dim_y * self.Location.spaces_x)
-        tlw = truncated_levy_walk(nagents, dimensions=dim, WT_MAX=self.tlw_max_wt)
+        tlw = truncated_levy_walk(nagents, dimensions=dim, FL_EXP=self.FL_EXP, FL_MAX=self.FL_MAX, WT_EXP=self.TLW_WT_EXP, WT_MAX=self.TLW_WT_MAX)
         pos = np.array([next(tlw).copy() for _ in range(self.t_end - self.t_start)])
         return pos
 
@@ -287,7 +301,7 @@ class ContactNetwork:
     def baseline(self):
         start_times, end_times = self.df.activity_start_min.values, self.df.activity_end_min.values
         event_ids = self.df.p_id.values
-        loc_id_end = self.df.loc_id_end.values[0]
+        # loc_id_end = self.df.loc_id_end.values[0]
         # Takes a df containing all activities at location
         # Returns all possible contacts
 
@@ -308,8 +322,8 @@ class ContactNetwork:
         # Save contacts to new DataFrame
         df_contacts = pd.DataFrame({'p_A': p_A,'p_B': event_ids[cols].astype('int'), 
                         'start_of_contact': overlap_start[rows, cols].astype('int'),
-                        'end_of_contact': overlap_end[rows, cols].astype('int'),
-                        'loc_id': np.repeat(loc_id_end, len(p_A)).astype('int32')})
+                        'end_of_contact': overlap_end[rows, cols].astype('int')})#,
+                        #'loc_id': np.repeat(loc_id_end, len(p_A)).astype('int32')})
         
         # Calculate contact durations
         df_contacts['contact_duration'] = df_contacts.end_of_contact - df_contacts.start_of_contact
@@ -362,6 +376,7 @@ class ContactNetwork:
             return
 
         if method == 'STEPS':
+            print(f'Model paras: k={self.k}, STEPS_pause_min/max={self.STEPS_pause_min, self.STEPS_pause_max}, v_STEPS_min/max={self.v_STEPS_min, self.v_STEPS_max}')
             # Assign default zones to all pid
             self.Location.get_distance_matrix()
             default_zones_map = dict(zip(self.unique_nodes, np.random.randint(0, self.Location.N_zones, self.unique_nodes.shape[0])))
@@ -369,6 +384,7 @@ class ContactNetwork:
             self.df.apply(self.STEPS, axis=1)
         
         elif method == 'STEPS_with_RWP':
+            print(f'Model paras: k={self.k}, STEPS_pause_min/max={self.STEPS_pause_min, self.STEPS_pause_max}, v_STEPS_min/max={self.v_STEPS_min, self.v_STEPS_max}, v_RWP_min/max={self.v_RWP_min, self.v_RWP_max}, RWP_WT_MAX={self.RWP_WT_MAX}')
             # get RWP positions
             dim = (self.Location.space_dim_x, self.Location.space_dim_y)
             pos = self.RWP_main(len(self.unique_nodes), dim=dim)
@@ -381,11 +397,15 @@ class ContactNetwork:
             self.df.apply(self.STEPS_with_RWP, pos=pos, axis=1)
         
         elif method == 'TLW':
+            # TLW
+            print(f'Model paras: TLW_WT_MAX={self.TLW_WT_MAX}, TLW_WT_EXP={self.TLW_WT_EXP}, FL_MAX={self.FL_MAX}, FL_EXP={self.FL_EXP}')
             pos = self.TLW(len(self.unique_nodes))
             result = self.df.apply(util.generate_array, axis=1)
             result.groupby(self.df['p_id']).apply(self.get_positions, pos=pos)
         
         elif method == 'RWP':
+            # RWP
+            print(f'Model paras: v_RWP_min/max={self.v_RWP_min, self.v_RWP_max}, RWP_WT_MAX={self.RWP_WT_MAX}')
             dim = (self.Location.space_dim_x * self.Location.spaces_x, self.Location.space_dim_y * self.Location.spaces_x)
             pos = self.RWP_main(len(self.unique_nodes), dim)
 
@@ -477,7 +497,7 @@ class ContactNetwork:
 
         if self.METHOD in ['baseline', 'random', 'clique'] and self.time_scale_data != 1:
             print(f'{self.METHOD} only supports time_scale_data = 1(minute) \nUpdate time resolution of your data and set time_scale_data accordingly or choose a different method')
-            return
+            # return
 
 
         elif self.METHOD == 'baseline':
