@@ -79,6 +79,8 @@ More models might be integrated in the future.
 ### Evaluation
 
 To assess the performance and quality of the generated micro-level contact networks, the evaluation process involves utilizing empirical networks from various scenarios, including a supermarket, an office, and a school. Diverse empirical settings provide a robust foundation for comprehensive evaluation. The evaluation metrics encompass various aspects, including contact duration, inter-contact time, and network density, to gauge the accuracy and realism of the generated networks. Special attention is given to higher-order network properties such as communities and clustering, providing insights into the intricate structure of the micro-level networks. Additionally, the infection dynamics within these networks are analyzed using an Agent-Based SIR (Susceptible-Infectious-Recovered) model.
+![overview_supermarked_f2_2021-03-19_approx_True_random_4](https://github.com/JurijSchoenfeld/traf2net/assets/84200833/bd4de5a0-fe56-466b-8be4-801c232fce64)
+
 
 #### Agent-Based SIR Model:
 
