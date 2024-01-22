@@ -174,13 +174,14 @@ def moving_average(a, n=3):
 def downscale_time(df, new_time):
     # new_time: one time_step in the downscaled df corresponds to new_time*time_step in old df
     # Assuming df has coloumn t 
-    
+
     df.t = np.floor(df.t / new_time).astype('int')
     return df.drop_duplicates(subset=['i', 'j', 't']).reset_index(drop=True)
 
 def downscale_time_contacts(df, new_time):
     # new_time: one time_step in the downscaled df corresponds to new_time*time_step in old df
     # Assuming df has coloumn t
+    
     df.start_of_contact = np.floor(df.start_of_contact / new_time).astype('int')
     df.end_of_contact = np.ceil(df.end_of_contact / new_time).astype('int')
     return df.drop_duplicates(subset=['p_A', 'p_B', 'start_of_contact', 'end_of_contact']).reset_index(drop=True)
