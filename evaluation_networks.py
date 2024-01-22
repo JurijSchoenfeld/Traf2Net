@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 import tacoma as tc
 import re
-from util import plot_contact_durations, moving_average
+from util import plot_contact_durations, moving_average, downscale_time
 from tacoma.analysis import plot_degree_distribution
 import random
 import contact_networks as cn
@@ -175,7 +175,7 @@ def collect_highschool():
 
 
 class EvaluationNetwork:
-    def __init__(self, name, path=None):
+    def __init__(self, name, path=None, new_time=None):
         self.name = name
 
         # Load pandas DataFrame
@@ -189,6 +189,17 @@ class EvaluationNetwork:
             file = random.choice(dirs)
             self.df = pd.read_parquet(f'./data_eval_split/{self.name}/{file}')
             self.name_identifier = file.split('.')[0]
+        
+        # Rescale time if necessary
+        self.new_time = new_time
+        if new_time:
+            self.df = downscale_time(self.df, new_time)  # rescale time 
+            print(self.df[['i', 'j', 't']])
+        else:
+            self.new_time = 1
+
+        # Setting minimum distance for contact to be counted
+        self.contact_dist = 2.0
 
 
     def to_tacoma_tn(self):
@@ -218,8 +229,9 @@ class EvaluationNetwork:
         # A trajectory starts when an agent has his first edge and ends with its last active edge whenever an agend has no contacts for switch_off_time
 
         if self.name == 'supermarked':
-            self.df = pd.read_parquet(f'./data_eval_split/supermarked/{self.name_identifier}_trajectories.parquet')
-            return self.df
+            self.df_trajectories = pd.read_parquet(f'./data_eval_split/supermarked/{self.name_identifier}_trajectories.parquet')
+            self.df_trajectories[['activity_start_min', 'activity_end_min']] = np.floor(self.df_trajectories[['activity_start_min', 'activity_end_min']] / self.new_time).astype('int')
+            return self.df_trajectories
         
         else:  
             ij = np.hstack((self.df.i.values, self.df.j.values))
@@ -240,14 +252,16 @@ class EvaluationNetwork:
                     activity_start_min.append(person_contact.tt[sonp + 1])
                     activity_end_min.append(person_contact.tt[sofp])
                 
-            self.df = pd.DataFrame({'p_id': p_id, 'activity_start_min': activity_start_min, 'activity_end_min': activity_end_min})
-            return self.df
+            self.df_trajectories = pd.DataFrame({'p_id': p_id, 'activity_start_min': activity_start_min, 'activity_end_min': activity_end_min})
+            return self.df_trajectories
     
 
-    def cn_approximation(self, Loc, method, time_resotlution, model_kwargs=None):
+    def cn_approximation(self, Loc, method, model_kwargs=None):
         self.method = method
-        ts, te = self.df.activity_start_min.min(), self.df.activity_end_min.max() 
-        CN = cn.ContactNetwork(self.df, Loc, ts, te, 1)
+        if method == 'random':
+            self.new_time = 1
+        ts, te = self.df_trajectories.activity_start_min.min(), self.df_trajectories.activity_end_min.max() 
+        CN = cn.ContactNetwork(self.df_trajectories, Loc, ts, te, self.new_time)
 
         # Set parameters of model
         if model_kwargs:
@@ -257,7 +271,10 @@ class EvaluationNetwork:
         CN.make_movement(method=method)
         print('finished simulation \nstart working on network')
 
-        self.tn_approx = CN.make_tacoma_network(2.0, time_resotlution)
+        self.tn_approx = CN.make_tacoma_network(self.contact_dist, self.new_time)
+    
+    def to_teneto(self):
+        pass
             
 
     def overview_plots(self, approx, ind=None, smoothing=60):
@@ -321,7 +338,24 @@ if __name__ == '__main__':
     Loc = hm.Location(f'{EN.name}_{EN.name_identifier}', 3, 3, 10, 10)
     EN.hm_approximation(Loc, 'RWP', 20)
     EN.overview_plots(True)'''
-    collect_supermarked()
+    #collect_supermarked()
+    path = './data_eval_split/supermarked/'
+    files = os.listdir(path)
+
+    EN = EvaluationNetwork('supermarked', path + files[0], 20)
+    EN.to_tacoma_tn()
+    EN.eval_df_to_trajectory(None)
+
+    n_space = 10
+    rwp_wt_max = 5
+    v_RWP_min = .1
+    v_RWP_max = 1.
+    Loc = cn.Location(0, n_space, n_space, 3.1, 3.1)
+    model_kwargs = {'RWP_WT_MAX': rwp_wt_max, 'v_RWP_min': v_RWP_min, 'v_RWP_max': v_RWP_max}
+    EN.cn_approximation(Loc, 'RWP', model_kwargs)
+    res = EN.overview_plots(True, 4)
+
+    pass
 
     
 

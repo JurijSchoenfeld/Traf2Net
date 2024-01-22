@@ -495,14 +495,17 @@ class ContactNetwork:
 
             return tn
 
-        if self.METHOD in ['baseline', 'random', 'clique'] and self.time_scale_data != 1:
+        '''if self.METHOD in ['baseline', 'random', 'clique'] and self.time_scale_data != 1:
             print(f'{self.METHOD} only supports time_scale_data = 1(minute) \nUpdate time resolution of your data and set time_scale_data accordingly or choose a different method')
-            # return
+            # return'''
 
 
-        elif self.METHOD == 'baseline':
+        if self.METHOD == 'baseline':
             # Get contacts
             contacts = self.baseline()
+            
+            # Downscale contact time
+            contacts = util.downscale_time_contacts(contacts, time_resolution)
 
             return self.tn_from_contacts(contacts)
 
@@ -513,12 +516,20 @@ class ContactNetwork:
             # Select random contacts
             selected_contacts = contacts.apply(self.random, axis=1)
             selected_contacts = pd.concat(selected_contacts.to_list(), ignore_index=True)
+
+            # Downscale contact time
+            #selected_contacts = util.downscale_time_contacts(selected_contacts, time_resolution)
+            #print(selected_contacts)
             
             return self.tn_from_contacts(selected_contacts)
 
         elif self.METHOD == 'clique':
             # Select contacts if nodes share space
             space_contacts = clique.get_contacts_spaces(self.df, self.N_peaoplePerSpace, self.p_space_change, self.mean, self.sigma)
+
+            # Downscale contact time
+            space_contacts = util.downscale_time_contacts(space_contacts, time_resolution)
+
             return self.tn_from_contacts(space_contacts)
 
 
