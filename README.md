@@ -95,9 +95,7 @@ The Agent-Based SIR model is employed to simulate the spread of infections withi
 
 - **Infectious to Recovered Transitions:**
   
-  $$
-  \frac{dI}{dt} = \beta \frac{SI}{N} - \gamma I
-  $$
+  $$ \frac{dI}{dt} = \beta \frac{SI}{N} - \gamma I $$
 
 - **Recovered individuals remain constant over time:**
   
