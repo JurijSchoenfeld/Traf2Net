@@ -173,7 +173,8 @@ def moving_average(a, n=3):
 
 def downscale_time(df, new_time):
     # new_time: one time_step in the downscaled df corresponds to new_time*time_step in old df
-    # Assuming df has coloumn t
+    # Assuming df has coloumn t 
+    
     df.t = np.floor(df.t / new_time).astype('int')
     return df.drop_duplicates(subset=['i', 'j', 't']).reset_index(drop=True)
 
