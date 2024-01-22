@@ -14,10 +14,6 @@ This project focuses on generating micro-level contact networks from macro-level
 4. [Data](#data)
 5. [Models](#models)
 6. [Evaluation](#evaluation)
-7. [Results](#results)
-8. [Contributing](#contributing)
-9. [License](#license)
-10. [Contact](#contact)
 
 ### Introduction
 
@@ -49,33 +45,33 @@ This project employs various models to generate micro-level contact networks bas
 
 1. **Baseline Approach:**
    - Description: A fully connected dynamic network is created between all active nodes.
-   - Implementation: [contac_networks.ContactNetworks.baseline]
+   - Implementation: contac_networks.ContactNetworks.baseline
 
 2. **Random Approach:**
    - Description: Contacts from the baseline approach are randomly chosen, and the contact duration is drawn from a given probability distribution.
-   - Implementation: [contac_networks.ContactNetworks.random]
+   - Implementation: contac_networks.ContactNetworks.random
 
 3. **Clique Approach:**
    - Description: Locations are divided into spaces, and nodes are assigned to default spaces. Nodes leave the default space with a given probability, and the duration of their stay at a different location is drawn from a given distribution. All nodes in a certain space are fully connected.
-   - Implementation: [contac_networks.ContactNetworks.clique]
+   - Implementation: clique.py
 
 **Sophisticated Human Mobility Models:**
 
 4. **Random Waypoint Model (RWP):**
    - Description: Movement of nodes is simulated using a random walk with pauses. Distances between active nodes are calculated at every time step, and a contact is generated if the distance surpasses a given threshold.
-   - Implementation: [mobility.py]
+   - Implementation: mobility.py
 
 5. **Truncated Levy Walk (TLW):**
    - Description: Similar to RWP but with added Levy flights during pauses.
-   - Implementation: [mobility.py]
+   - Implementation: mobility.py
 
 6. **Spatio Temporal Parametric Stepping Model (STEPS):**
    - Description: Locations are divided into spaces, and each node is assigned a default space. Nodes leave their default space with a given probability, and the new space is chosen based on a probability distribution determined by the distance to the default space.
-   - Implementation: [contac_networks.ContactNetworks.STEPS]
+   - Implementation: contac_networks.ContactNetworks.STEPS
 
 7. **STEPS + RWP:**
    - Description: Nodes swap spaces according to STEPS movement, and the movement within the space is simulated with RWP.
-   - Implementation: [contac_networks.ContactNetworks.STEPS_with_RWP]
+   - Implementation: contac_networks.ContactNetworks.STEPS_with_RWP
 
 More models might be integrated in the future.
 
