@@ -88,22 +88,20 @@ To assess the performance and quality of the generated micro-level contact netwo
 The Agent-Based SIR model is employed to simulate the spread of infections within the generated networks. In this model, each individual (or agent) in the network is classified into one of three compartments: Susceptible (S), Infectious (I), or Recovered (R). The model's dynamics are governed by the following set of equations:
 
 - **Susceptible to Infectious Transition:**
-  ```latex
-  \[
+  
+  $$
   \frac{dS}{dt} = -\beta \frac{SI}{N}
-  \]
+  $$
 
 - **Infectious to Recovered Transitions:**
-    ```latex
-    \[
+    $$
     \frac{dI}{dt} = \beta \frac{SI}{N} - \gamma I
-    \]
+    $$
 
 - **Recovered individuals remain constant over time:**
-    ```latex
-    \[
+    $$
     \frac{dI}{dt} = \beta \frac{SI}{N} - \gamma I
-    \]
+    $$
 
 Where:
 - **S** is the number of susceptible individuals,
