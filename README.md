@@ -113,4 +113,12 @@ The Agent-Based SIR model allows for a dynamic simulation of infection spread wi
 
 New metrics are currently being tested to further enhance the evaluation process. As the project progresses, additional metrics may be introduced to provide a more comprehensive and nuanced assessment of the generated micro-level contact networks.
 
+### References
+
+    Nguyen, A.D., Sénac, P., Ramiro, V., Diaz, M. (2011). "STEPS - An Approach for Human Mobility Modeling." In: Domingo-Pascual, J., Manzoni, P., Palazzo, S., Pont, A., Scoglio, C. (eds) NETWORKING 2011. Lecture Notes in Computer Science, vol 6640. Springer, Berlin, Heidelberg. https://doi.org/10.1007/978-3-642-20757-0_20
+
+    D. Mboup, C. Diallo and H. Cherifi (2022). "Temporal Networks Based on Human Mobility Models: A Comparative Analysis With Real-World Networks." In: IEEE Access, vol. 10, pp. 5912-5935. doi: 10.1109/ACCESS.2021.3140136
+
+
+
 
