@@ -26,7 +26,7 @@ To run this project, follow these steps:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your-username/your-project.git
+   git clone https://github.com/JurijSchoenfeld/traf2net
    ```
 
 ### Data
@@ -81,37 +81,6 @@ More models might be integrated in the future.
 To assess the performance and quality of the generated micro-level contact networks, the evaluation process involves utilizing empirical networks from various scenarios, including a supermarket, an office, and a school. Diverse empirical settings provide a robust foundation for comprehensive evaluation. The evaluation metrics encompass various aspects, including contact duration, inter-contact time, and network density, to gauge the accuracy and realism of the generated networks. Special attention is given to higher-order network properties such as communities and clustering, providing insights into the intricate structure of the micro-level networks. Additionally, the infection dynamics within these networks are analyzed using an Agent-Based SIR (Susceptible-Infectious-Recovered) model.
 
 ![overview_supermarked_f2_2021-03-19_approx_True_random_4](https://github.com/JurijSchoenfeld/traf2net/assets/84200833/bd4de5a0-fe56-466b-8be4-801c232fce64)
-
-
-#### Agent-Based SIR Model:
-
-The Agent-Based SIR model is employed to simulate the spread of infections within the generated networks. In this model, each individual (or agent) in the network is classified into one of three compartments: Susceptible (S), Infectious (I), or Recovered (R). The model's dynamics are governed by the following set of equations:
-
-- **Susceptible to Infectious Transition:**
-  
-  
-  $$\frac{dS}{dt} = -\beta \frac{SI}{N}$$
-
-- **Infectious to Recovered Transitions:**
-  
-  $$\frac{dI}{dt} = \beta \frac{SI}{N} - \gamma I$$
-
-- **Recovered individuals remain constant over time:**
-  
-  $$\frac{dI}{dt} = \beta \frac{SI}{N} - \gamma I$$
-
-
-Where:
-- **S** is the number of susceptible individuals,
-- **I** is the number of infectious individuals,
-- **R** is the number of recovered individuals,
-- **β** is the transmission rate,
-- **γ** is the recovery rate,
-- **N** is the total population.
-
-The Agent-Based SIR model allows for a dynamic simulation of infection spread within the generated micro-level contact networks, facilitating a comparative analysis of infection dynamics just above the epidemic threshold.
-
-New metrics are currently being tested to further enhance the evaluation process. As the project progresses, additional metrics may be introduced to provide a more comprehensive and nuanced assessment of the generated micro-level contact networks.
 
 
 ### References
