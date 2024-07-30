@@ -15,6 +15,7 @@ except ImportError as e:
 from tacoma import marker_sequence
 from tacoma import color_sequence
 from tacoma import get_logarithmic_histogram
+from scipy.stats import ks_2samp
 
 
 def map_pid(df):
@@ -41,7 +42,8 @@ def plot_contact_durations(result,
                            use_logarithmic_histogram=True,
                            markersize=4,
                            label=None,
-                           color=None
+                           color=None,
+                           alpha=1.0
                            ):
     if marker is None:
         markers = ['o', 'x']
@@ -91,7 +93,8 @@ def plot_contact_durations(result,
                     label=labels[i],
                     ms=markersize,
                     mew=1,
-                    mfc='None'
+                    mfc='None',
+                    alpha=alpha
                     )
         else:
             if use_logarithmic_histogram:
@@ -111,7 +114,8 @@ def plot_contact_durations(result,
             a[i].step(x, np.append(y, y[-1]),
                     where='post',
                     label=labels[i],
-                    color=color
+                    color=color,
+                    alpha=alpha
                     )
 
         res[labels[i]] = (x, y)
@@ -131,6 +135,115 @@ def plot_contact_durations(result,
         ax.legend()
 
     return res
+
+
+def plot_only_contact_durations(result,
+                           ax,
+                           marker=None,
+                           xlabel='duration',
+                           bins=100,  # number of bins
+                           time_normalization_factor=1.,
+                           time_unit=None,
+                           bin_dt=None,
+                           plot_step=False,
+                           fit_power_law=False,
+                           use_logarithmic_histogram=True,
+                           markersize=4,
+                           label=None,
+                           color=None,
+                           alpha=1.0
+                           ):
+    if marker is None:
+        markers = ['o', 'x']
+    else:
+        markers = [marker] * 2
+
+    if label is None:
+        labels = ['contact', 'inter-contact']
+    else:
+        # labels = [label] * 2
+        labels = label
+
+
+    if bin_dt is not None:
+        use_discrete_dt = True
+    else:
+        use_discrete_dt = False
+
+    if not hasattr(ax,'__len__'):
+        a = [ax, ax]
+    else:
+        a = ax
+
+    durs = [np.array(result.contact_durations, dtype=float),
+            np.array(result.group_durations[1], dtype=float)]
+    res = {}
+
+    for i, dur in enumerate(durs[:-1]):
+        if not plot_step:
+            if use_logarithmic_histogram:
+                x, y = get_logarithmic_histogram(
+                    time_normalization_factor*dur, bins)
+            elif use_discrete_dt:
+                c = Counter(dur / bin_dt)
+                total = sum(c.values())
+                x = []
+                y = []
+                for x_, y_ in c.items():
+                    x.append(x_* bin_dt)
+                    y.append(y_/total / bin_dt)
+            else:
+                y, x = np.histogram(dur*time_normalization_factor,bins=bins,density=True)
+                x = 0.5*(x[1:]+x[:-1])
+                print(x.shape,y.shape)
+
+            a[i].plot(x, y, ls='', marker=markers[i], color=color,
+                    label=labels[i],
+                    ms=markersize,
+                    mew=1,
+                    mfc='None',
+                    alpha=alpha
+                    )
+        else:
+            if use_logarithmic_histogram:
+                x, y = get_logarithmic_histogram(
+                    time_normalization_factor*dur, bins, return_bin_means=False)
+            elif use_discrete_dt:
+                c = Counter(dur / bin_dt)
+                total = sum(c.values())
+                x = []
+                y = []
+                for x_, y_ in c.items():
+                    x.append(x_* bin_dt)
+                    y.append(y_/total / bin_dt)
+                x.append(x[-1]+1)
+            else:
+                y, x = np.histogram(dur*time_normalization_factor,bins=bins,density=True)
+            a[i].step(x, np.append(y, y[-1]),
+                    where='post',
+                    label=labels[i],
+                    color=color,
+                    alpha=alpha
+                    )
+
+        res[labels[i]] = (x, y)
+
+    if time_unit is not None:
+        xlabel += ' [' + time_unit + ']'
+    ylabel = 'probability density'
+    if time_unit is not None:
+        ylabel += ' [1/' + time_unit + ']'
+
+    for ax in a: 
+ 
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.legend()
+
+    return res
+
 
 def boolean_blocks_indices(bool_array):
     # Find the indices where the values change from False to True or True to False
@@ -155,6 +268,7 @@ def boolean_blocks_indices(bool_array):
 
 
 def generate_array(row):
+    #return np.arange(0, row.activity_end_min - row.activity_start_min + 1)
     return np.arange(row['activity_start_min'], row['activity_end_min'] + 1)
 
 def combine_arrays(*arrays):
@@ -183,4 +297,42 @@ def downscale_time_contacts(df, new_time):
     # Assuming df has coloumn t
     df.start_of_contact = np.floor(df.start_of_contact / new_time).astype('int')
     df.end_of_contact = np.ceil(df.end_of_contact / new_time).astype('int')
+    #mask_equal_times = (df.start_of_contact == df.end_of_contact)
+    #df.end_of_contact[mask_equal_times] = df.end_of_contact[mask_equal_times] + 1 
     return df.drop_duplicates(subset=['p_A', 'p_B', 'start_of_contact', 'end_of_contact']).reset_index(drop=True)
+
+def mean_with_errors(Is, upper_bound, lower_bound=0):
+    I_mean = np.mean(Is, axis=0)
+    I_std = np.std(Is, axis=0)
+    I_err_upper = I_mean + I_std
+    I_err_lower = I_mean - I_std
+    I_err_upper[I_err_upper > upper_bound] = upper_bound
+    I_err_lower[I_err_lower < lower_bound] = lower_bound
+
+    return I_mean, I_err_upper, I_err_lower
+
+def add_ks_test_results(result_container, observable_name, sample1, sample2):
+    # Add results from ks test to a result container if the result is significant i.e. p < .005
+    ks_result = ks_2samp(sample1, sample2)
+    #print(ks_result)
+
+    if ks_result.pvalue < .005:
+        result_container[observable_name] = ks_result.statistic
+    else:
+        result_container[observable_name] = 1.0  # ks test inconclusive, add worst possible result
+    
+    return result_container
+
+def forward_fill_zeros(array):
+    # Convert array to DataFrame
+    nanmask = np.isnan(array)
+    array[nanmask] = -9999
+    array[array == 0] = np.nan
+    df = pd.DataFrame(array)
+    df = df.ffill(axis=1)
+    
+    array_filled = df.to_numpy()
+    array_filled[nanmask] = np.nan
+    
+    return array_filled
+
